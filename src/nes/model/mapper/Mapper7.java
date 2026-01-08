@@ -64,22 +64,12 @@ public class Mapper7 implements Mapper {
     public void cpuWrite(int address, int value, long cycles) {
         address &= 0xFFFF;
         if (address >= 0x8000) {
-            // FIX: Disable bus conflict emulation.
-            // Many ROM dumps are not accurate enough for "value & cpuRead(address)"
-            // to work correctly, causing Battletoads to fail nametable switches.
             int resolvedValue = value;
 
             // Update PRG and Mirroring
             prgBankSelect = resolvedValue & prgBankMask;
             mirroringSelect = (resolvedValue >> 4) & 1;
 
-            // Log state (Optional: keep for debug)
-            /*
-            System.out.printf(
-                    "Mapper 7 Write: Addr=$%04X, Value=$%02X, PRGBank=%d, Mirroring=%d%n",
-                    address, resolvedValue, prgBankSelect, mirroringSelect
-            );
-            */
         }
     }
 

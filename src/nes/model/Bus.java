@@ -19,6 +19,7 @@ public class Bus {
         this.ram = ram;
         if (this.cpu != null) this.cpu.attachBus(this);
         if (this.ppu != null) this.ppu.attachBus(this);
+        if (this.apu != null) this.apu.attachBus(this);
     }
 
     public int read(int address) {
@@ -63,6 +64,8 @@ public class Bus {
                 for (int i = 0; i < 256; i++) {
                     ppu.oamDmaWrite(read((base + i) & 0xFFFF));
                 }
+                ppu.stepCpuCycles(513);
+                if (apu != null) apu.stepCpuCycles(513);
                 if (cpu != null) cpu.stall(513);
                 return;
             }
@@ -72,7 +75,7 @@ public class Bus {
                 if (controller2 != null) controller2.setStrobe(strobe);
                 return;
             }
-            if (address >= 0x4000 && address <= 0x4017) {
+            if (address <= 0x4017) {
                 apu.writeRegister(address, value);
                 return;
             }
@@ -91,6 +94,10 @@ public class Bus {
         if (cpu != null) cpu.irq();
     }
 
+    public void clearIrq() {
+        if (cpu != null) cpu.clearIrq();
+    }
+
     public void setCartridge(Cartridge cart) {
         this.cartridge = cart;
         if (cart != null) {
@@ -106,6 +113,9 @@ public class Bus {
     public void onCpuCycle() {
         if (ppu != null) {
             ppu.stepCpuCycles(1);
+        }
+        if (apu != null) {
+            apu.stepCpuCycles(1);
         }
     }
 }

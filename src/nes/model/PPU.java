@@ -128,9 +128,6 @@ public class PPU {
     private void tickOneDot() {
         // --- Pre-render scanline clear flags ---
         if (scanline == -1 && dot == 1) {
-            if (statusSpriteZeroHit) {
-                System.out.println("S0 HIT CLEARED at pre-render scanline");
-            }
             statusVBlank = false;
             statusSpriteZeroHit = false;
             statusSpriteOverflow = false;
@@ -335,7 +332,7 @@ public class PPU {
 
         // Row within the sprite (0 to height-1)
         // scanline - sprY gives 1 to height, so subtract 1
-        int row = scanline - sprY - 1;
+        int row = scanline - sprY;
 
         if (row < 0 || row >= height) {
             return 0;
@@ -503,13 +500,11 @@ public class PPU {
 
         // Sprite zero hit detection
         if (! statusSpriteZeroHit && spriteZeroRendered && bgPixel != 0) {
-            if (renderBg && renderSpr) {
+            if (renderBg) {
                 boolean leftClipped = ! renderBgLeft || ! renderSprLeft;
                 if (x >= 8 || ! leftClipped) {
                     if (x < 255) {
                         statusSpriteZeroHit = true;
-                        // DEBUG: Log when sprite 0 hit is SET
-                        System.out.println("S0 HIT SET at scanline " + scanline + ", x=" + x);
                     }
                 }
             }

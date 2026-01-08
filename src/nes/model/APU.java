@@ -9,7 +9,6 @@ import java.util.Queue;
  * This class simulates the two Pulse channels, the Triangle channel, and the Noise channel.
  * It uses a Frame Counter to drive the length counters and envelope units, which is
  * essential for correct note duration and volume decay.
- *
  * The DMC channel is not implemented.
  */
 public class APU {
@@ -18,6 +17,10 @@ public class APU {
     private final Pulse pulse2 = new Pulse(false);
     private final Triangle triangle = new Triangle();
     private final Noise noise = new Noise();
+    private Bus bus;
+
+    private boolean frameInterruptFlag = false;
+    private boolean frameIrqInhibit = false;
 
     private int cpuCycleCounter = 0;
     private int frameCounter = 0;
@@ -54,6 +57,10 @@ public class APU {
         }
     }
 
+    public void attachBus(Bus bus) {
+        this.bus = bus;
+    }
+
     public void reset() {
         pulse1.reset();
         pulse2.reset();
@@ -86,7 +93,15 @@ public class APU {
                 if (cpuCycleCounter == 7457) { clockQuarterFrame(); }
                 if (cpuCycleCounter == 14913) { clockQuarterFrame(); clockHalfFrame(); }
                 if (cpuCycleCounter == 22371) { clockQuarterFrame(); }
-                if (cpuCycleCounter == 29829) { clockQuarterFrame(); clockHalfFrame(); cpuCycleCounter = 0; }
+                if (cpuCycleCounter == 29829) {
+                    clockQuarterFrame();
+                    clockHalfFrame();
+                    cpuCycleCounter = 0;
+                    if (!frameIrqInhibit) {
+                        frameInterruptFlag = true;
+                        if (bus != null) bus.requestIrq();
+                    }
+                }
             } else { // 5-Step Sequence
                 if (cpuCycleCounter == 7457) { clockQuarterFrame(); }
                 if (cpuCycleCounter == 14913) { clockQuarterFrame(); clockHalfFrame(); }
@@ -109,6 +124,10 @@ public class APU {
                     
                     sampleBuffer.add(filteredSample);
                 }
+            }
+
+            if (frameInterruptFlag && !frameIrqInhibit) {
+                if (bus != null) bus.requestIrq();
             }
         }
     }
@@ -172,6 +191,11 @@ public class APU {
                 break;
             case 0x4017:
                 frameCounterMode = (value >> 7) & 1;
+                frameIrqInhibit = (value & 0x40) != 0;
+                if (frameIrqInhibit || frameCounterMode == 1) {
+                    frameInterruptFlag = false;
+                    if (bus != null) bus.clearIrq();
+                }
                 cpuCycleCounter = 0; // Reset counter on mode change
                 if (frameCounterMode == 1) { // 5-step mode immediately clocks
                     clockQuarterFrame();
@@ -188,6 +212,9 @@ public class APU {
             if (pulse2.lengthCounter > 0) status |= 2;
             if (triangle.lengthCounter > 0) status |= 4;
             if (noise.lengthCounter > 0) status |= 8;
+            if (frameInterruptFlag) status |= 0x40;
+            frameInterruptFlag = false;
+            if (bus != null) bus.clearIrq();
             return status;
         }
         return 0;

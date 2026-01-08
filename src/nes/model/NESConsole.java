@@ -51,7 +51,6 @@ public class NESConsole {
             int cyclesRemaining = cpuCyclesPerFrame;
             while (cyclesRemaining > 0) {
                 int cycles = cpu.stepInstruction();
-                apu.stepCpuCycles(cycles);
                 cyclesRemaining -= cycles;
             }
         }

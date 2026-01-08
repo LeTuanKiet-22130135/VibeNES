@@ -23,7 +23,6 @@ public class CPU {
     private int fetchedValue;
     private int cyclesThisInstruction;
     private boolean isAccumulatorMode;
-    private int debugFrameCounter = 0;
 
     public CPU() {
         // Do not call reset() here because bus is not attached yet.
@@ -52,7 +51,13 @@ public class CPU {
 
     public void nmi() { nmiDetected = true; }
     public void irq() { irqDetected = true; }
+    public void clearIrq() { irqDetected = false; }
     public void stall(int cycles) { this.stallCycles += cycles; }
+
+    private void tick() {
+        cyclesThisInstruction++;
+        if (bus != null) bus.onCpuCycle();
+    }
 
     public int stepInstruction() {
         cyclesThisInstruction = 0;
@@ -60,14 +65,18 @@ public class CPU {
 
         if (nmiDetected) {
             nmiDetected = false;
-            push16(pc); push((p & ~B) | U); setFlag(I, true);
+            push16(pc); 
+            push((p & ~B) | U); 
+            setFlag(I, true);
             pc = read16(0xFFFA);
-            cyclesThisInstruction += 2; // 2 internal cycles for interrupt
+            tick(); tick(); // 2 internal cycles for interrupt
         } else if (irqDetected && !flag(I)) {
             irqDetected = false;
-            push16(pc); push((p & ~B) | U); setFlag(I, true);
+            push16(pc); 
+            push((p & ~B) | U); 
+            setFlag(I, true);
             pc = read16(0xFFFE);
-            cyclesThisInstruction += 2; // 2 internal cycles for interrupt
+            tick(); tick(); // 2 internal cycles for interrupt
         } else {
             int opcode = read8(pc++);
             executeOpcode(opcode);
@@ -84,13 +93,13 @@ public class CPU {
             // ADC
             case 0x69: immediate(); ADC(); break; case 0x65: zp(); ADC(); break;
             case 0x75: zpX(); ADC(); break; case 0x6D: abs(); ADC(); break;
-            case 0x7D: absX(true); ADC(); break; case 0x79: absY(); ADC(); break;
-            case 0x61: indX(); ADC(); break; case 0x71: indY(); ADC(); break;
+            case 0x7D: absX(true); ADC(); break; case 0x79: absY(true); ADC(); break;
+            case 0x61: indX(); ADC(); break; case 0x71: indY(true); ADC(); break;
             // AND
             case 0x29: immediate(); AND(); break; case 0x25: zp(); AND(); break;
             case 0x35: zpX(); AND(); break; case 0x2D: abs(); AND(); break;
-            case 0x3D: absX(true); AND(); break; case 0x39: absY(); AND(); break;
-            case 0x21: indX(); AND(); break; case 0x31: indY(); AND(); break;
+            case 0x3D: absX(true); AND(); break; case 0x39: absY(true); AND(); break;
+            case 0x21: indX(); AND(); break; case 0x31: indY(true); AND(); break;
             // ASL
             case 0x0A: accumulator(); ASL(); break;
             case 0x06: zp(); ASL(); break;
@@ -113,8 +122,8 @@ public class CPU {
             // CMP
             case 0xC9: immediate(); CMP(); break; case 0xC5: zp(); CMP(); break;
             case 0xD5: zpX(); CMP(); break; case 0xCD: abs(); CMP(); break;
-            case 0xDD: absX(true); CMP(); break; case 0xD9: absY(); CMP(); break;
-            case 0xC1: indX(); CMP(); break; case 0xD1: indY(); CMP(); break;
+            case 0xDD: absX(true); CMP(); break; case 0xD9: absY(true); CMP(); break;
+            case 0xC1: indX(); CMP(); break; case 0xD1: indY(true); CMP(); break;
             // CPX
             case 0xE0: immediate(); CPX(); break; case 0xE4: zp(); CPX(); break;
             case 0xEC: abs(); CPX(); break;
@@ -127,8 +136,8 @@ public class CPU {
             // EOR
             case 0x49: immediate(); EOR(); break; case 0x45: zp(); EOR(); break;
             case 0x55: zpX(); EOR(); break; case 0x4D: abs(); EOR(); break;
-            case 0x5D: absX(true); EOR(); break; case 0x59: absY(); EOR(); break;
-            case 0x41: indX(); EOR(); break; case 0x51: indY(); EOR(); break;
+            case 0x5D: absX(true); EOR(); break; case 0x59: absY(true); EOR(); break;
+            case 0x41: indX(); EOR(); break; case 0x51: indY(true); EOR(); break;
             // INC
             case 0xE6: zp(); INC(); break; case 0xF6: zpX(); INC(); break;
             case 0xEE: abs(); INC(); break; case 0xFE: absX(false); INC(); break;
@@ -138,12 +147,12 @@ public class CPU {
             // LDA
             case 0xA9: immediate(); LDA(); break; case 0xA5: zp(); LDA(); break;
             case 0xB5: zpX(); LDA(); break; case 0xAD: abs(); LDA(); break;
-            case 0xBD: absX(true); LDA(); break; case 0xB9: absY(); LDA(); break;
-            case 0xA1: indX(); LDA(); break; case 0xB1: indY(); LDA(); break;
+            case 0xBD: absX(true); LDA(); break; case 0xB9: absY(true); LDA(); break;
+            case 0xA1: indX(); LDA(); break; case 0xB1: indY(true); LDA(); break;
             // LDX
             case 0xA2: immediate(); LDX(); break; case 0xA6: zp(); LDX(); break;
             case 0xB6: zpY(); LDX(); break; case 0xAE: abs(); LDX(); break;
-            case 0xBE: absY(); LDX(); break;
+            case 0xBE: absY(true); LDX(); break;
             // LDY
             case 0xA0: immediate(); LDY(); break; case 0xA4: zp(); LDY(); break;
             case 0xB4: zpX(); LDY(); break; case 0xAC: abs(); LDY(); break;
@@ -158,8 +167,8 @@ public class CPU {
             // ORA
             case 0x09: immediate(); ORA(); break; case 0x05: zp(); ORA(); break;
             case 0x15: zpX(); ORA(); break; case 0x0D: abs(); ORA(); break;
-            case 0x1D: absX(true); ORA(); break; case 0x19: absY(); ORA(); break;
-            case 0x01: indX(); ORA(); break; case 0x11: indY(); ORA(); break;
+            case 0x1D: absX(true); ORA(); break; case 0x19: absY(true); ORA(); break;
+            case 0x01: indX(); ORA(); break; case 0x11: indY(true); ORA(); break;
             // Stack
             case 0x48: PHA(); break; case 0x68: PLA(); break;
             case 0x08: PHP(); break; case 0x28: PLP(); break;
@@ -176,13 +185,13 @@ public class CPU {
             // SBC
             case 0xE9: case 0xEB: immediate(); SBC(); break; case 0xE5: zp(); SBC(); break;
             case 0xF5: zpX(); SBC(); break; case 0xED: abs(); SBC(); break;
-            case 0xFD: absX(true); SBC(); break; case 0xF9: absY(); SBC(); break;
-            case 0xE1: indX(); SBC(); break; case 0xF1: indY(); SBC(); break;
+            case 0xFD: absX(true); SBC(); break; case 0xF9: absY(true); SBC(); break;
+            case 0xE1: indX(); SBC(); break; case 0xF1: indY(true); SBC(); break;
             // STA
             case 0x85: zpAddr(); STA(); break; case 0x95: zpXAddr(); STA(); break;
-            case 0x8D: absAddr(); STA(); break; case 0x9D: absXAddr(); STA(); break;
-            case 0x99: absYAddr(); STA(); break; case 0x81: indXAddr(); STA(); break;
-            case 0x91: indYAddr(); STA(); break;
+            case 0x8D: absAddr(); STA(); break; case 0x9D: absXAddr(true); STA(); break;
+            case 0x99: absYAddr(true); STA(); break; case 0x81: indXAddr(); STA(); break;
+            case 0x91: indYAddr(true); STA(); break;
             // STX
             case 0x86: zpAddr(); STX(); break; case 0x96: zpYAddr(); STX(); break;
             case 0x8E: absAddr(); STX(); break;
@@ -196,95 +205,7 @@ public class CPU {
             // Increments/Decrements
             case 0xE8: INX(); break; case 0xC8: INY(); break;
             case 0xCA: DEX(); break; case 0x88: DEY(); break;
-
-            // === UNOFFICIAL OPCODES USED BY BATTLETOADS ===
-
-            // LAX - Load A and X with memory (like LDA + LDX)
-            case 0xA7: zp(); LAX(); break;
-            case 0xB7: zpY(); LAX(); break;
-            case 0xAF: abs(); LAX(); break;
-            case 0xBF: absY(); LAX(); break;
-            case 0xA3: indX(); LAX(); break;
-            case 0xB3: indY(); LAX(); break;
-
-            // SAX - Store A AND X (A & X -> memory)
-            case 0x87: zpAddr(); SAX(); break;
-            case 0x97: zpYAddr(); SAX(); break;
-            case 0x8F: absAddr(); SAX(); break;
-            case 0x83: indXAddr(); SAX(); break;
-
-            // DCP - Decrement memory then compare with A (DEC + CMP)
-            case 0xC7: zp(); DCP(); break;
-            case 0xD7: zpX(); DCP(); break;
-            case 0xCF: abs(); DCP(); break;
-            case 0xDF: absX(false); DCP(); break;
-            case 0xDB: absYRMW(); DCP(); break;  // was absY()
-            case 0xC3: indX(); DCP(); break;
-            case 0xD3: indYRMW(); DCP(); break;  // was indY()
-
-            // ISB/ISC - Increment memory then subtract from A (INC + SBC)
-            case 0xE7: zp(); ISB(); break;
-            case 0xF7: zpX(); ISB(); break;
-            case 0xEF: abs(); ISB(); break;
-            case 0xFF: absX(false); ISB(); break;
-            case 0xFB: absYRMW(); ISB(); break;  // was absY()
-            case 0xE3: indX(); ISB(); break;
-            case 0xF3: indYRMW(); ISB(); break;  // was indY()
-
-            // SLO - Shift left then OR with A (ASL + ORA)
-            case 0x07: zp(); SLO(); break;
-            case 0x17: zpX(); SLO(); break;
-            case 0x0F: abs(); SLO(); break;
-            case 0x1F: absX(false); SLO(); break;
-            case 0x1B: absYRMW(); SLO(); break;  // was absY()
-            case 0x03: indX(); SLO(); break;
-            case 0x13: indYRMW(); SLO(); break;  // was indY()
-
-            // RLA - Rotate left then AND with A (ROL + AND)
-            case 0x27: zp(); RLA(); break;
-            case 0x37: zpX(); RLA(); break;
-            case 0x2F: abs(); RLA(); break;
-            case 0x3F: absX(false); RLA(); break;
-            case 0x3B: absYRMW(); RLA(); break;  // was absY()
-            case 0x23: indX(); RLA(); break;
-            case 0x33: indYRMW(); RLA(); break;  // was indY()
-
-            // SRE - Shift right then XOR with A (LSR + EOR)
-            case 0x47: zp(); SRE(); break;
-            case 0x57: zpX(); SRE(); break;
-            case 0x4F: abs(); SRE(); break;
-            case 0x5F: absX(false); SRE(); break;
-            case 0x5B: absYRMW(); SRE(); break;  // was absY()
-            case 0x43: indX(); SRE(); break;
-            case 0x53: indYRMW(); SRE(); break;  // was indY()
-
-            // RRA - Rotate right then add to A (ROR + ADC)
-            case 0x67: zp(); RRA(); break;
-            case 0x77: zpX(); RRA(); break;
-            case 0x6F: abs(); RRA(); break;
-            case 0x7F: absX(false); RRA(); break;
-            case 0x7B: absYRMW(); RRA(); break;  // was absY()
-            case 0x63: indX(); RRA(); break;
-            case 0x73: indYRMW(); RRA(); break;  // was indY()
-
-            // NOP variants (single and multi-byte)
-            case 0x1A: case 0x3A: case 0x5A: case 0x7A:  case 0xDA: case 0xFA:
-                NOP(); break; // Implied NOP
-            case 0x80: case 0x82: case 0x89: case 0xC2: case 0xE2:
-                immediate(); NOP(); break; // 2-byte NOP (immediate)
-            case 0x04: case 0x44: case 0x64:
-                zp(); NOP(); break; // 2-byte NOP (zp)
-            case 0x14: case 0x34: case 0x54: case 0x74: case 0xD4: case 0xF4:
-                zpX(); NOP(); break; // 2-byte NOP (zp,X)
-            case 0x0C:
-                abs(); NOP(); break; // 3-byte NOP (abs)
-            case 0x1C:  case 0x3C: case 0x5C: case 0x7C: case 0xDC: case 0xFC:
-                absX(true); NOP(); break; // 3-byte NOP (abs,X)
-
-            default:
-                // Unknown opcode - treat as NOP but log for debugging
-                cyclesThisInstruction++;
-                break;
+            default: break; // Unofficial opcodes are ignored for now
         }
     }
 
@@ -321,35 +242,29 @@ public class CPU {
     private void zpX() { fetchedAddr = (read8(pc++) + x) & 0xFF; read8(fetchedAddr); fetchedValue = read8(fetchedAddr); }
     private void zpY() { fetchedAddr = (read8(pc++) + y) & 0xFF; read8(fetchedAddr); fetchedValue = read8(fetchedAddr); }
     private void abs() { int lo = read8(pc++); int hi = read8(pc++); fetchedAddr = (hi << 8) | lo; fetchedValue = read8(fetchedAddr); }
-    private void absX(boolean extraCycle) { int lo = read8(pc++); int hi = read8(pc++); int base = (hi << 8) | lo; fetchedAddr = (base + x) & 0xFFFF; fetchedValue = read8(fetchedAddr); if (extraCycle && (base & 0xFF00) != (fetchedAddr & 0xFF00)) cyclesThisInstruction++; }
-    private void absY() { int lo = read8(pc++); int hi = read8(pc++); int base = (hi << 8) | lo; fetchedAddr = (base + y) & 0xFFFF; fetchedValue = read8(fetchedAddr); if ((base & 0xFF00) != (fetchedAddr & 0xFF00)) cyclesThisInstruction++; }
+    private void absX(boolean extraCycle) { int lo = read8(pc++); int hi = read8(pc++); int base = (hi << 8) | lo; fetchedAddr = (base + x) & 0xFFFF; fetchedValue = read8(fetchedAddr); if (extraCycle && (base & 0xFF00) != (fetchedAddr & 0xFF00)) tick(); }
+    private void absY(boolean extraCycle) { int lo = read8(pc++); int hi = read8(pc++); int base = (hi << 8) | lo; fetchedAddr = (base + y) & 0xFFFF; fetchedValue = read8(fetchedAddr); if (extraCycle && (base & 0xFF00) != (fetchedAddr & 0xFF00)) tick(); }
     private void indX() { int zp = read8(pc++); read8(zp); int addr = (zp + x) & 0xFF; int lo = read8(addr); int hi = read8((addr + 1) & 0xFF); fetchedAddr = (hi << 8) | lo; fetchedValue = read8(fetchedAddr); }
-    private void indY() { int zp = read8(pc++); int lo = read8(zp); int hi = read8((zp + 1) & 0xFF); int base = (hi << 8) | lo; fetchedAddr = (base + y) & 0xFFFF; fetchedValue = read8(fetchedAddr); if ((base & 0xFF00) != (fetchedAddr & 0xFF00)) cyclesThisInstruction++; }
+    private void indY(boolean extraCycle) { int zp = read8(pc++); int lo = read8(zp); int hi = read8((zp + 1) & 0xFF); int base = (hi << 8) | lo; fetchedAddr = (base + y) & 0xFFFF; fetchedValue = read8(fetchedAddr); if (extraCycle && (base & 0xFF00) != (fetchedAddr & 0xFF00)) tick(); }
     
     private void zpAddr() { fetchedAddr = read8(pc++); }
     private void zpXAddr() { fetchedAddr = (read8(pc++) + x) & 0xFF; read8(fetchedAddr); }
     private void zpYAddr() { fetchedAddr = (read8(pc++) + y) & 0xFF; read8(fetchedAddr); }
     private void absAddr() { int lo = read8(pc++); int hi = read8(pc++); fetchedAddr = (hi << 8) | lo; }
-    private void absXAddr() { int lo = read8(pc++); int hi = read8(pc++); int base = (hi << 8) | lo; fetchedAddr = (base + x) & 0xFFFF;
-        read8(fetchedAddr);
-    }
-    private void absYAddr() { int lo = read8(pc++); int hi = read8(pc++); int base = (hi << 8) | lo; fetchedAddr = (base + y) & 0xFFFF;
-        read8(fetchedAddr);
-    }
+    private void absXAddr(boolean dummyRead) { int lo = read8(pc++); int hi = read8(pc++); int base = (hi << 8) | lo; fetchedAddr = (base + x) & 0xFFFF; if (dummyRead || (base & 0xFF00) != (fetchedAddr & 0xFF00)) read8(fetchedAddr); }
+    private void absYAddr(boolean dummyRead) { int lo = read8(pc++); int hi = read8(pc++); int base = (hi << 8) | lo; fetchedAddr = (base + y) & 0xFFFF; if (dummyRead || (base & 0xFF00) != (fetchedAddr & 0xFF00)) read8(fetchedAddr); }
     private void indXAddr() { int zp = read8(pc++); read8(zp); int addr = (zp + x) & 0xFF; int lo = read8(addr); int hi = read8((addr + 1) & 0xFF); fetchedAddr = (hi << 8) | lo; }
-    private void indYAddr() { int zp = read8(pc++); int lo = read8(zp); int hi = read8((zp + 1) & 0xFF); int base = (hi << 8) | lo; fetchedAddr = (base + y) & 0xFFFF;
-        read8(fetchedAddr);
-    }
+    private void indYAddr(boolean dummyRead) { int zp = read8(pc++); int lo = read8(zp); int hi = read8((zp + 1) & 0xFF); int base = (hi << 8) | lo; fetchedAddr = (base + y) & 0xFFFF; if (dummyRead || (base & 0xFF00) != (fetchedAddr & 0xFF00)) read8(fetchedAddr); }
 
     // --- Instructions ---
     private void ADC() { int sum = a + fetchedValue + (flag(C) ? 1 : 0); setFlag(C, sum > 0xFF); setFlag(V, (~(a ^ fetchedValue) & (a ^ sum) & 0x80) != 0); a = sum & 0xFF; setZN(a); }
     private void AND() { a &= fetchedValue; setZN(a); }
-    private void ASL() { cyclesThisInstruction++; if (isAccumulatorMode) { setFlag(C, (a & 0x80) != 0); a = (a << 1) & 0xFF; setZN(a); } else { int val = fetchedValue; setFlag(C, (val & 0x80) != 0); val = (val << 1) & 0xFF; write8(fetchedAddr, val); setZN(val); } }
-    private void branch(boolean cond) { if (cond) { cyclesThisInstruction++; int offset = (byte)read8(pc++); int oldPc = pc; pc = (pc + offset) & 0xFFFF; if ((oldPc & 0xFF00) != (pc & 0xFF00)) cyclesThisInstruction++; } else { read8(pc++); } }
+    private void ASL() { tick(); if (isAccumulatorMode) { setFlag(C, (a & 0x80) != 0); a = (a << 1) & 0xFF; setZN(a); } else { int val = fetchedValue; setFlag(C, (val & 0x80) != 0); val = (val << 1) & 0xFF; write8(fetchedAddr, val); setZN(val); } }
+    private void branch(boolean cond) { if (cond) { tick(); int offset = (byte)read8(pc++); int oldPc = pc; pc = (pc + offset) & 0xFFFF; if ((oldPc & 0xFF00) != (pc & 0xFF00)) tick(); } else { read8(pc++); } }
     private void BIT() { setFlag(Z, (a & fetchedValue) == 0); setFlag(V, (fetchedValue & V) != 0); setFlag(N, (fetchedValue & N) != 0); }
     private void BRK() { pc++; push16(pc); push(p | B | U); setFlag(I, true); pc = read16(0xFFFE); }
-    private void CLC() { cyclesThisInstruction++; setFlag(C, false); } private void CLD() { cyclesThisInstruction++; setFlag(D, false); }
-    private void CLI() { cyclesThisInstruction++; setFlag(I, false); } private void CLV() { cyclesThisInstruction++; setFlag(V, false); }
+    private void CLC() { tick(); setFlag(C, false); } private void CLD() { tick(); setFlag(D, false); }
+    private void CLI() { tick(); setFlag(I, false); } private void CLV() { tick(); setFlag(V, false); }
     private void CMP() { int cmp = (a - fetchedValue) & 0x1FF; setFlag(C, cmp < 0x100); setZN(cmp & 0xFF); }
     private void CPX() { int cmp = (x - fetchedValue) & 0x1FF; setFlag(C, cmp < 0x100); setZN(cmp & 0xFF); }
     private void CPY() { int cmp = (y - fetchedValue) & 0x1FF; setFlag(C, cmp < 0x100); setZN(cmp & 0xFF); }
@@ -358,135 +273,35 @@ public class CPU {
     private void INC() { int val = (fetchedValue + 1) & 0xFF; write8(fetchedAddr, val); setZN(val); }
     private void JMP_abs() { int lo = read8(pc++); int hi = read8(pc++); pc = (hi << 8) | lo; }
     private void JMP_ind() { int lo = read8(pc++); int hi = read8(pc++); int addr = (hi << 8) | lo; pc = read16Bug(addr); }
-    private void JSR() { int lo = read8(pc++); int hi = read8(pc++); push16(pc - 1); pc = (hi << 8) | lo; cyclesThisInstruction++; }
+    private void JSR() { int lo = read8(pc++); int hi = read8(pc++); push16(pc - 1); pc = (hi << 8) | lo; tick(); }
     private void LDA() { a = fetchedValue; setZN(a); }
     private void LDX() { x = fetchedValue; setZN(x); }
     private void LDY() { y = fetchedValue; setZN(y); }
-    private void LSR() { cyclesThisInstruction++; if (isAccumulatorMode) { setFlag(C, (a & 1) != 0); a >>= 1; setZN(a); } else { int val = fetchedValue; setFlag(C, (val & 1) != 0); val >>= 1; write8(fetchedAddr, val); setZN(val); } }
-    private void NOP() { cyclesThisInstruction++; }
+    private void LSR() { tick(); if (isAccumulatorMode) { setFlag(C, (a & 1) != 0); a >>= 1; setZN(a); } else { int val = fetchedValue; setFlag(C, (val & 1) != 0); val >>= 1; write8(fetchedAddr, val); setZN(val); } }
+    private void NOP() { tick(); }
     private void ORA() { a |= fetchedValue; setZN(a); }
-    private void PHA() { push(a); cyclesThisInstruction++; }
-    private void PLA() { cyclesThisInstruction += 2; a = pop(); setZN(a); }
-    private void PHP() { push(p | B | U); cyclesThisInstruction++; }
-    private void PLP() { cyclesThisInstruction += 2; p = (pop() & ~B) | U; }
-    private void ROL() { cyclesThisInstruction++; int c = flag(C) ? 1 : 0; if (isAccumulatorMode) { setFlag(C, (a & 0x80) != 0); a = ((a << 1) | c) & 0xFF; setZN(a); } else { int val = fetchedValue; setFlag(C, (val & 0x80) != 0); val = ((val << 1) | c) & 0xFF; write8(fetchedAddr, val); setZN(val); } }
-    private void ROR() { cyclesThisInstruction++; int c = flag(C) ? 0x80 : 0; if (isAccumulatorMode) { setFlag(C, (a & 1) != 0); a = (a >> 1) | c; setZN(a); } else { int val = fetchedValue; setFlag(C, (val & 1) != 0); val = (val >> 1) | c; write8(fetchedAddr, val); setZN(val); } }
-    private void RTI() { p = (pop() & ~B) | U; pc = pop16(); cyclesThisInstruction += 2; }
-    private void RTS() { pc = (pop16() + 1) & 0xFFFF; cyclesThisInstruction += 3; }
+    private void PHA() { push(a); tick(); }
+    private void PLA() { tick(); tick(); a = pop(); setZN(a); }
+    private void PHP() { push(p | B | U); tick(); }
+    private void PLP() { tick(); tick(); p = (pop() & ~B) | U; }
+    private void ROL() { tick(); int c = flag(C) ? 1 : 0; if (isAccumulatorMode) { setFlag(C, (a & 0x80) != 0); a = ((a << 1) | c) & 0xFF; setZN(a); } else { int val = fetchedValue; setFlag(C, (val & 0x80) != 0); val = ((val << 1) | c) & 0xFF; write8(fetchedAddr, val); setZN(val); } }
+    private void ROR() { tick(); int c = flag(C) ? 0x80 : 0; if (isAccumulatorMode) { setFlag(C, (a & 1) != 0); a = (a >> 1) | c; setZN(a); } else { int val = fetchedValue; setFlag(C, (val & 1) != 0); val = (val >> 1) | c; write8(fetchedAddr, val); setZN(val); } }
+    private void RTI() { p = (pop() & ~B) | U; pc = pop16(); tick(); tick(); }
+    private void RTS() { pc = (pop16() + 1) & 0xFFFF; tick(); tick(); tick(); }
     private void SBC() { int val = fetchedValue ^ 0xFF; int sum = a + val + (flag(C) ? 1 : 0); setFlag(C, sum > 0xFF); setFlag(V, (~(a ^ val) & (a ^ sum) & 0x80) != 0); a = sum & 0xFF; setZN(a); }
-    private void SEC() { cyclesThisInstruction++; setFlag(C, true); } private void SED() { cyclesThisInstruction++; setFlag(D, true); }
-    private void SEI() { cyclesThisInstruction++; setFlag(I, true); }
+    private void SEC() { tick(); setFlag(C, true); } private void SED() { tick(); setFlag(D, true); }
+    private void SEI() { tick(); setFlag(I, true); }
     private void STA() { write8(fetchedAddr, a); }
     private void STX() { write8(fetchedAddr, x); }
     private void STY() { write8(fetchedAddr, y); }
-    private void TAX() { x = a; setZN(x); cyclesThisInstruction++; }
-    private void TAY() { y = a; setZN(y); cyclesThisInstruction++; }
-    private void TXA() { a = x; setZN(a); cyclesThisInstruction++; }
-    private void TYA() { a = y; setZN(a); cyclesThisInstruction++; }
-    private void TSX() { x = sp; setZN(x); cyclesThisInstruction++; }
-    private void TXS() { sp = x; cyclesThisInstruction++; }
-    private void INX() { x = (x + 1) & 0xFF; setZN(x); cyclesThisInstruction++; }
-    private void INY() { y = (y + 1) & 0xFF; setZN(y); cyclesThisInstruction++; }
-    private void DEX() { x = (x - 1) & 0xFF; setZN(x); cyclesThisInstruction++; }
-    private void DEY() { y = (y - 1) & 0xFF; setZN(y); cyclesThisInstruction++; }
-
-    private void LAX() {
-        a = fetchedValue;
-        x = fetchedValue;
-        setZN(a);
-    }
-
-    private void SAX() {
-        write8(fetchedAddr, a & x);
-    }
-
-    private void DCP() {
-        // DEC then CMP
-        int val = (fetchedValue - 1) & 0xFF;
-        write8(fetchedAddr, val);
-        int cmp = (a - val) & 0x1FF;
-        setFlag(C, cmp < 0x100);
-        setZN(cmp & 0xFF);
-    }
-
-    private void ISB() {
-        // INC then SBC
-        int val = (fetchedValue + 1) & 0xFF;
-        write8(fetchedAddr, val);
-        // Now do SBC with the incremented value
-        val ^= 0xFF;
-        int sum = a + val + (flag(C) ? 1 : 0);
-        setFlag(C, sum > 0xFF);
-        setFlag(V, (~(a ^ val) & (a ^ sum) & 0x80) != 0);
-        a = sum & 0xFF;
-        setZN(a);
-    }
-
-    private void SLO() {
-        // ASL then ORA
-        setFlag(C, (fetchedValue & 0x80) != 0);
-        int val = (fetchedValue << 1) & 0xFF;
-        write8(fetchedAddr, val);
-        a |= val;
-        setZN(a);
-    }
-
-    private void RLA() {
-        // ROL then AND
-        int c = flag(C) ? 1 : 0;
-        setFlag(C, (fetchedValue & 0x80) != 0);
-        int val = ((fetchedValue << 1) | c) & 0xFF;
-        write8(fetchedAddr, val);
-        a &= val;
-        setZN(a);
-    }
-
-    private void SRE() {
-        // LSR then EOR
-        setFlag(C, (fetchedValue & 1) != 0);
-        int val = fetchedValue >> 1;
-        write8(fetchedAddr, val);
-        a ^= val;
-        setZN(a);
-    }
-
-    private void RRA() {
-        // ROR then ADC
-        int c = flag(C) ? 0x80 : 0;
-        setFlag(C, (fetchedValue & 1) != 0);
-        int val = (fetchedValue >> 1) | c;
-        write8(fetchedAddr, val);
-        // Now do ADC with the rotated value
-        int sum = a + val + (flag(C) ? 1 : 0);
-        setFlag(C, sum > 0xFF);
-        setFlag(V, (~(a ^ val) & (a ^ sum) & 0x80) != 0);
-        a = sum & 0xFF;
-        setZN(a);
-    }
-
-    // Add these new addressing mode methods for read-modify-write unofficial opcodes
-    private void absYRMW() {
-        int lo = read8(pc++);
-        int hi = read8(pc++);
-        int base = (hi << 8) | lo;
-        fetchedAddr = (base + y) & 0xFFFF;
-        read8(fetchedAddr); // Always do dummy read for RMW
-        fetchedValue = read8(fetchedAddr);
-    }
-
-    private void indYRMW() {
-        int zp = read8(pc++);
-        int lo = read8(zp);
-        int hi = read8((zp + 1) & 0xFF);
-        int base = (hi << 8) | lo;
-        fetchedAddr = (base + y) & 0xFFFF;
-        read8(fetchedAddr); // Always do dummy read for RMW
-        fetchedValue = read8(fetchedAddr);
-    }
-
-    // Helper to advance one CPU cycle and clock the rest of the system
-    private void tick() {
-        cyclesThisInstruction++;
-        if (bus != null) bus.onCpuCycle();
-    }
+    private void TAX() { x = a; setZN(x); tick(); }
+    private void TAY() { y = a; setZN(y); tick(); }
+    private void TXA() { a = x; setZN(a); tick(); }
+    private void TYA() { a = y; setZN(a); tick(); }
+    private void TSX() { x = sp; setZN(x); tick(); }
+    private void TXS() { sp = x; tick(); }
+    private void INX() { x = (x + 1) & 0xFF; setZN(x); tick(); }
+    private void INY() { y = (y + 1) & 0xFF; setZN(y); tick(); }
+    private void DEX() { x = (x - 1) & 0xFF; setZN(x); tick(); }
+    private void DEY() { y = (y - 1) & 0xFF; setZN(y); tick(); }
 }
