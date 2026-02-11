@@ -43,6 +43,10 @@ public class PPU {
 
     private int ppuDataReadBuffer;
     private int openBus; // Last value written to the PPU bus
+    // Open bus decay - each bit decays independently after ~600ms (~3.2 million PPU cycles)
+    // We use a simpler model: decay after approximately 600ms worth of PPU cycles
+    private static final int OPEN_BUS_DECAY_CYCLES = 3200000; // ~600ms at 5.37MHz
+    private int openBusDecayTimer;
 
     // Timing
     private int scanline;
@@ -54,10 +58,10 @@ public class PPU {
     private int bg_next_tile_attrib;
     private int bg_next_tile_lsb;
     private int bg_next_tile_msb;
-    private long bg_shifter_pattern_lo;
-    private long bg_shifter_pattern_hi;
-    private long bg_shifter_attrib_lo;
-    private long bg_shifter_attrib_hi;
+    private int bg_shifter_pattern_lo;  // Changed to int (16 bits is enough)
+    private int bg_shifter_pattern_hi;
+    private int bg_shifter_attrib_lo;
+    private int bg_shifter_attrib_hi;
 
     // Sprite evaluation state
     private final int[] spriteScanline = new int[8]; // OAM indices of sprites on current line
@@ -70,7 +74,11 @@ public class PPU {
     private final int[] spriteAttrs = new int[8];
     private final boolean[] spriteIsZero = new boolean[8];
 
+    private int overflowTriggerDot = -1;
+
     private Bus bus;
+
+    private int[] openBusBitTimers = new int[8];
 
     public PPU() {
         reset();
@@ -91,6 +99,7 @@ public class PPU {
         maskReg = 0; statusVBlank = false; statusSpriteZeroHit = false;
         statusSpriteOverflow = false; oamAddr = 0; writeToggleW = false;
         t = 0; v = 0; xFine = 0; ppuDataReadBuffer = 0; openBus = 0;
+        openBusDecayTimer = 0;
         scanline = -1; dot = 0; oddFrame = false;
         bg_next_tile_id = 0;
         bg_next_tile_attrib = 0;
@@ -100,6 +109,7 @@ public class PPU {
         bg_shifter_pattern_hi = 0;
         bg_shifter_attrib_lo = 0;
         bg_shifter_attrib_hi = 0;
+        openBusBitTimers = new int[8];
 
         // Clear memories
         Arrays.fill(vram, (byte) 0);
@@ -126,6 +136,8 @@ public class PPU {
     }
 
     private void tickOneDot() {
+        decayOpenBus();
+
         // --- Pre-render scanline clear flags ---
         if (scanline == -1 && dot == 1) {
             statusVBlank = false;
@@ -146,16 +158,34 @@ public class PPU {
         }
 
         boolean renderingEnabled = isRenderEnabled();
+        boolean bgEnabled = (maskReg & 0x08) != 0;
+        boolean sprEnabled = (maskReg & 0x10) != 0;
 
         // --- Visible scanlines and pre-render line ---
         if (scanline >= -1 && scanline < 240) {
 
-            // Sprite evaluation at dot 65 (we do it at dot 1 for simplicity, result is same)
+            // [STEP 1] Reset flag and calculate timing at start of line
             if (renderingEnabled && dot == 1 && scanline >= 0) {
+                statusSpriteOverflow = false;
+                calculateOverflowTrigger();
+            }
+
+            // [STEP 2] Set flag at the specific calculated cycle
+            if (renderingEnabled && dot == overflowTriggerDot && scanline >= 0) {
+                statusSpriteOverflow = true;
+            }
+
+            if (renderingEnabled && dot == 257 && scanline >= 0) {
+                // DEBUG
+                if (scanline <= 2) {
+                    System.out.printf("[PRE-EVAL] scanline=%d maskReg=0x%02X renderEnabled=%b%n",
+                            scanline, maskReg, renderingEnabled);
+                }
                 evaluateSprites();
             }
 
             // Background fetching and shifting
+            // FIX: Shifters should be clocked when EITHER bg or sprites are enabled
             if (renderingEnabled) {
 
                 // *** MMC5:  Signal start of BG fetches at dot 1 ***
@@ -163,21 +193,22 @@ public class PPU {
                     ((Mapper5) cartridge.getMapper()).setFetchingSprites(false);
                 }
 
-                // Shifter update (dots 2-257 and 322-337)
+                // FIX: Clock shifters when any rendering is enabled (bg OR sprites)
+                // This is required for proper sprite-0 hit detection even when bg is disabled
                 if ((dot >= 2 && dot <= 257) || (dot >= 322 && dot <= 337)) {
-                    bg_shifter_pattern_lo <<= 1;
-                    bg_shifter_pattern_hi <<= 1;
-                    bg_shifter_attrib_lo <<= 1;
-                    bg_shifter_attrib_hi <<= 1;
+                    bg_shifter_pattern_lo = (bg_shifter_pattern_lo << 1) & 0xFFFF;
+                    bg_shifter_pattern_hi = (bg_shifter_pattern_hi << 1) & 0xFFFF;
+                    bg_shifter_attrib_lo = (bg_shifter_attrib_lo << 1) & 0xFFFF;
+                    bg_shifter_attrib_hi = (bg_shifter_attrib_hi << 1) & 0xFFFF;
                 }
 
-                // Background tile fetching (dots 1-256 and 321-336)
-                if ((dot >= 1 && dot <= 256) || (dot >= 321 && dot <= 336)) {
+                // Background tile fetching (dots 1-256 and 321-337)
+                // FIX: Fetches occur when ANY rendering is enabled, not just bg
+                if ((dot >= 1 && dot <= 256) || (dot >= 321 && dot <= 337)) {
                     switch ((dot - 1) % 8) {
                         case 0:
                             loadBackgroundShifters();
                             int ntAddr = 0x2000 | (v & 0x0FFF);
-                            // Notify MMC5 of nametable fetch for EXRAM mode
                             if (cartridge != null && cartridge.getMapper() instanceof Mapper5) {
                                 ((Mapper5) cartridge.getMapper()).notifyNametableFetch(ntAddr);
                             }
@@ -190,8 +221,11 @@ public class PPU {
                             bg_next_tile_attrib &= 0x03;
                             break;
                         case 4:
-                            bg_next_tile_lsb = readVram((ctrlBgTableHigh ?  0x1000 : 0) + (bg_next_tile_id * 16) + ((v >> 12) & 7));
-                            break;
+                        {
+                            int patAddr = (ctrlBgTableHigh ? 0x1000 : 0) + (bg_next_tile_id * 16) + ((v >> 12) & 7);
+                            bg_next_tile_lsb = readVram(patAddr);
+                        }
+                        break;
                         case 6:
                             bg_next_tile_msb = readVram((ctrlBgTableHigh ? 0x1000 : 0) + (bg_next_tile_id * 16) + 8 + ((v >> 12) & 7));
                             break;
@@ -328,40 +362,46 @@ public class PPU {
     }
 
     private int fetchSpritePattern(int sprY, int tile, int attr, boolean highByte) {
-        int height = ctrlSpriteSize8x16 ? 16 :  8;
+        boolean size8x16 = ctrlSpriteSize8x16;
+        int height = size8x16 ? 16 : 8;
 
-        // Row within the sprite (0 to height-1)
-        // scanline - sprY gives 1 to height, so subtract 1
         int row = scanline - sprY;
 
-        if (row < 0 || row >= height) {
-            return 0;
-        }
+        if (row < 0 || row >= height) return 0;
 
         boolean flipV = (attr & 0x80) != 0;
         if (flipV) {
             row = height - 1 - row;
         }
 
-        int patternAddr;
-        if (ctrlSpriteSize8x16) {
-            int table = (tile & 1) * 0x1000;
-            int baseTile = tile & 0xFE;
-            if (row >= 8) {
-                baseTile++;
+        int tableAddr;
+        int tileIndex;
+
+        if (size8x16) {
+            int bank = tile & 1;
+            tableAddr = bank * 0x1000;
+
+            if (row < 8) {
+                tileIndex = tile & 0xFE;
+            } else {
+                tileIndex = (tile & 0xFE) + 1;
                 row -= 8;
             }
-            patternAddr = table + baseTile * 16 + row;
         } else {
-            int table = ctrlSprTableHigh ?  0x1000 : 0;
-            patternAddr = table + tile * 16 + row;
+            tableAddr = ctrlSprTableHigh ? 0x1000 : 0x0000;
+            tileIndex = tile;
         }
 
+        int address = tableAddr + (tileIndex * 16) + row;
         if (highByte) {
-            patternAddr += 8;
+            address += 8;
         }
 
-        return readVram(patternAddr);
+        int patternData = 0;
+        if (cartridge != null) {
+            patternData = cartridge.getMapper().ppuRead(address);
+        }
+        return patternData;
     }
 
     /**
@@ -384,25 +424,61 @@ public class PPU {
 
         for (int i = 0; i < 64; i++) {
             int spriteY = oam[i * 4] & 0xFF;
-            // NES sprites:  Y value is the scanline BEFORE the sprite appears
-            // So sprite at Y=0 is displayed starting on scanline 1
-            // Sprite at Y=N is displayed on scanlines N+1 through N+height
-            // For scanline S, we check if S is in range [Y+1, Y+height]
-            // Which means:  (S - 1) - Y must be in range [0, height-1]
-            // Or equivalently: S - Y must be in range [1, height]
+
+            if (spriteY >= 0xEF) continue;
 
             int row = scanline - spriteY;
 
-            if (row >= 1 && row <= height) {
+            if (row >= 0 && row < height) {
                 if (spriteCount < 8) {
                     spriteScanline[spriteCount++] = i;
-                } else {
-                    statusSpriteOverflow = true;
-                    break;
+                }
+            }
+        }
+
+        // DEBUG: Log sprite evaluation for scanlines 0-2
+        if (scanline <= 2) {
+            int spr0Y = oam[0] & 0xFF;
+            System.out.printf("[EVAL] scanline=%d dot=%d spriteCount=%d spr0Y=%d maskReg=0x%02X renderEnabled=%b%n",
+                    scanline, dot, spriteCount, spr0Y, maskReg, isRenderEnabled());
+        }
+    }
+
+    // Calculates the exact Dot when overflow should trigger for the NEXT line
+    private void calculateOverflowTrigger() {
+        overflowTriggerDot = -1; // Default: no overflow
+
+        int height = ctrlSpriteSize8x16 ? 16 : 8;
+        int count = 0;
+
+        // Look ahead to the NEXT scanline
+        int targetLine = scanline + 1;
+
+        // Scan OAM linearly just like the hardware does
+        for (int i = 0; i < 64; i++) {
+            int spriteY = oam[i * 4] & 0xFF;
+
+            // Standard NES behavior: sprites >= 240 are treated as off-screen/ignored
+            if (spriteY >= 240) continue;
+
+            int row = targetLine - spriteY;
+
+            if (row >= 0 && row < height) {
+                count++;
+                // If this is the 9th sprite (overflow), calculate the timing
+                if (count == 9) {
+                    // Hardware starts evaluation at Dot 65.
+                    // It takes approx 3 dots to check each sprite slot.
+                    // Formula: Base Start + (SpriteIndex * 3)
+                    overflowTriggerDot = 65 + (i * 3);
+
+                    // Clamp to end of visible line just in case
+                    return;
                 }
             }
         }
     }
+
 
     private void loadBackgroundShifters() {
         bg_shifter_pattern_lo = (bg_shifter_pattern_lo & 0xFF00) | (bg_next_tile_lsb & 0xFF);
@@ -447,6 +523,7 @@ public class PPU {
         boolean renderBgLeft = (maskReg & 0x02) != 0;
         boolean renderSpr = (maskReg & 0x10) != 0;
         boolean renderSprLeft = (maskReg & 0x04) != 0;
+
 
         // Background pixel from shifters
         if (renderBg && (renderBgLeft || x >= 8)) {
@@ -510,6 +587,7 @@ public class PPU {
             }
         }
 
+
         // Priority multiplexer
         int finalPixel;
         int finalPalette;
@@ -547,46 +625,59 @@ public class PPU {
         return NES_PALETTE[palIndex];
     }
 
+    private void refreshOpenBus(int value) {
+        refreshOpenBusBits(value, 0xFF);
+    }
+
     // --- Register Interface & Memory Access ---
     public int readRegister(int address) {
         int reg = 0x2000 | (address & 7);
         switch (reg) {
             case 0x2002:
-                int status = (statusVBlank ? 0x80 :  0) | (statusSpriteZeroHit ? 0x40 : 0) | (statusSpriteOverflow ? 0x20 : 0);
+                int status = (statusVBlank ? 0x80 : 0) | (statusSpriteZeroHit ? 0x40 : 0) | (statusSpriteOverflow ? 0x20 : 0);
                 status |= (openBus & 0x1F);
                 statusVBlank = false;
                 writeToggleW = false;
-                openBus = status;
+                refreshOpenBusBits(status, 0xE0);
                 return status;
             case 0x2004:
                 int data = oam[oamAddr & 0xFF] & 0xFF;
-                openBus = data;
+                refreshOpenBus(data);
                 return data;
             case 0x2007:
                 int addr = v & 0x3FFF;
                 int value;
                 if (addr >= 0x3F00) {
-                    value = readPalette(addr) & 0xFF;
+                    // Palette read: low 6 bits from palette, high 2 bits from open bus
+                    value = (openBus & 0xC0) | (readPalette(addr) & 0x3F);
                     ppuDataReadBuffer = readVram(addr - 0x1000);
                 } else {
                     value = ppuDataReadBuffer;
                     ppuDataReadBuffer = readVram(addr);
                 }
                 incrementVramAddr();
-                openBus = value;
+                refreshOpenBus(value);
                 return value;
             default:
+                // Write-only register. CPU sees open bus.
                 return openBus;
         }
     }
 
     public void writeRegister(int address, int value) {
-        openBus = value;
+        // CPU writing to PPU drives the bus -> Reset decay
+        refreshOpenBus(value);
+
         int reg = 0x2000 | (address & 7);
         value &= 0xFF;
         switch (reg) {
             case 0x2000:
+                boolean nmiPreviouslyEnabled = ctrlNmiEnable;
                 ctrlNmiEnable = (value & 0x80) != 0;
+
+                if (!nmiPreviouslyEnabled && ctrlNmiEnable && statusVBlank) {
+                    if (bus != null) bus.requestNmi();
+                }
                 ctrlSpriteSize8x16 = (value & 0x20) != 0;
                 ctrlBgTableHigh = (value & 0x10) != 0;
                 ctrlSprTableHigh = (value & 0x08) != 0;
@@ -607,7 +698,7 @@ public class PPU {
                 oam[oamAddr++ & 0xFF] = (byte) value;
                 break;
             case 0x2005:
-                if (! writeToggleW) {
+                if (!writeToggleW) {
                     xFine = value & 0x07;
                     t = (t & ~0x001F) | (value >> 3);
                 } else {
@@ -647,25 +738,25 @@ public class PPU {
     private int readVram(int addr) {
         addr &= 0x3FFF;
 
+        int val = 0;
         // Pattern tables ($0000-$1FFF) - ALWAYS go through mapper for CHR access
         if (addr < 0x2000) {
             if (cartridge != null) {
-                return cartridge.getMapper().ppuRead(addr) & 0xFF;
+                val = cartridge.getMapper().ppuRead(addr) & 0xFF;
             }
-            return 0;
         }
-
         // Nametables ($2000-$3EFF)
-        if (addr < 0x3F00) {
+        else if (addr < 0x3F00) {
             // For MMC5, let the mapper handle nametables
             if (cartridge != null && cartridge.getMapper() instanceof Mapper5) {
-                return cartridge.getMapper().ppuRead(addr) & 0xFF;
+                val = cartridge.getMapper().ppuRead(addr) & 0xFF;
+            } else {
+                // Standard mirroring for other mappers
+                val = vram[applyMirroring(addr & 0x0FFF)] & 0xFF;
             }
-            // Standard mirroring for other mappers
-            return vram[applyMirroring(addr & 0x0FFF)] & 0xFF;
         }
 
-        return 0;
+        return val;
     }
 
     private void writeVram(int addr, int value) {
@@ -673,6 +764,12 @@ public class PPU {
 
         // Pattern tables ($0000-$1FFF) - ALWAYS go through mapper for CHR-RAM writes
         if (addr < 0x2000) {
+            // DEBUG: Catch corruption of tile $C0 pattern data (addr $0C00-$0C0F)
+            if (addr >= 0x0C00 && addr <= 0x0C0F) {
+                System.out.printf("[CHR CORRUPT] addr=0x%04X value=0x%02X v=0x%04X scanline=%d dot=%d%n",
+                        addr, value, v, scanline, dot);
+                new Exception().printStackTrace(System.out);
+            }
             if (cartridge != null) {
                 cartridge.getMapper().ppuWrite(addr, value);
             }
@@ -681,24 +778,35 @@ public class PPU {
 
         // Nametables ($2000-$3EFF)
         if (addr < 0x3F00) {
-            // For MMC5, let the mapper handle nametables
             if (cartridge != null && cartridge.getMapper() instanceof Mapper5) {
                 cartridge.getMapper().ppuWrite(addr, value);
                 return;
             }
-            // Standard mirroring for other mappers
             vram[applyMirroring(addr & 0x0FFF)] = (byte) value;
         }
     }
 
     private int applyMirroring(int addr) {
-        Cartridge. Mirroring mode = (cartridge != null) ? cartridge.getMirroring() : Cartridge.Mirroring.VERTICAL;
+        Cartridge.Mirroring mode = (cartridge != null) ? cartridge.getMirroring() : Cartridge.Mirroring.VERTICAL;
+
+        // addr is already masked to 0x0FFF (nametable range $0000-$0FFF relative to $2000)
+        // We need to map this to our 2KB VRAM ($0000-$07FF)
+
         return switch (mode) {
-            case HORIZONTAL -> ((addr >> 1) & 0x400) | (addr & 0x3FF);
-            case SINGLE_SCREEN_A -> addr & 0x3FF;           // All map to first 1KB
-            case SINGLE_SCREEN_B -> 0x400 | (addr & 0x3FF); // All map to second 1KB
-            case FOUR_SCREEN -> addr & 0xFFF;               // Full 4KB (if supported)
-            default -> addr & 0x7FF;                        // VERTICAL:  standard 2KB mirroring
+            case VERTICAL -> // $2000/$2800 -> VRAM $000, $2400/$2C00 -> VRAM $400
+                // Bit 10 selects which 1KB bank, bit 11 is ignored
+                    (addr & 0x07FF);
+            case HORIZONTAL -> // $2000/$2400 -> VRAM $000, $2800/$2C00 -> VRAM $400
+                // Bit 11 selects which 1KB bank, bit 10 is ignored
+                    ((addr & 0x800) >> 1) | (addr & 0x3FF);
+            case SINGLE_SCREEN_A -> // All nametables map to first 1KB
+                    addr & 0x3FF;
+            case SINGLE_SCREEN_B -> {
+                // All nametables map to second 1KB
+                yield 0x400 | (addr & 0x3FF);
+            }
+            case FOUR_SCREEN -> // Full 4KB (requires extra RAM, not typically in 2KB vram)
+                    addr & 0x0FFF;
         };
     }
 
@@ -716,6 +824,29 @@ public class PPU {
             addr -= 0x10;
         }
         palette[addr] = (byte) (value & 0x3F);
+    }
+
+    private void refreshOpenBusBits(int value, int mask) {
+        for (int i = 0; i < 8; i++) {
+            if ((mask & (1 << i)) != 0) {
+                if ((value & (1 << i)) != 0) {
+                    openBus |= (1 << i);
+                } else {
+                    openBus &= ~(1 << i);
+                }
+                openBusBitTimers[i] = 0;
+            }
+        }
+    }
+
+    private void decayOpenBus() {
+        for (int i = 0; i < 8; i++) {
+            if (openBusBitTimers[i] < OPEN_BUS_DECAY_CYCLES) {
+                openBusBitTimers[i]++;
+            } else {
+                openBus &= ~(1 << i);
+            }
+        }
     }
 
     // --- Getters ---

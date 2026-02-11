@@ -91,9 +91,6 @@ public class NESConsole {
         this.cartridge = cart;
         this.bus.setCartridge(cart);
         this.ppu.setCartridge(cart);
-        if (cart != null) {
-            cart.reset();   // reset mapper (MMC1) state
-        }
         this.ppu.reset();    // reset PPU state
         this.cpu.reset();    // reset CPU
     }
