@@ -647,7 +647,7 @@ public class PPU {
                 }
                 incrementVramAddr();
                 if (addr >= 0x3F00) {
-                    refreshOpenBusBits(value, 0x3F); // Only refresh palette bits (0-5), top 2 bits retain their own decay
+                    refreshOpenBusBits(value, 0x3F); // Only refresh palette bits (0-5); top 2 bits from open bus keep their existing decay timers
                 } else {
                     refreshOpenBus(value); // Non-palette: refresh all 8 bits
                 }
