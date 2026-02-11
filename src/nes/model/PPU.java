@@ -176,11 +176,6 @@ public class PPU {
             }
 
             if (renderingEnabled && dot == 257 && scanline >= 0) {
-                // DEBUG
-                if (scanline <= 2) {
-                    System.out.printf("[PRE-EVAL] scanline=%d maskReg=0x%02X renderEnabled=%b%n",
-                            scanline, maskReg, renderingEnabled);
-                }
                 evaluateSprites();
             }
 
@@ -436,12 +431,7 @@ public class PPU {
             }
         }
 
-        // DEBUG: Log sprite evaluation for scanlines 0-2
-        if (scanline <= 2) {
-            int spr0Y = oam[0] & 0xFF;
-            System.out.printf("[EVAL] scanline=%d dot=%d spriteCount=%d spr0Y=%d maskReg=0x%02X renderEnabled=%b%n",
-                    scanline, dot, spriteCount, spr0Y, maskReg, isRenderEnabled());
-        }
+
     }
 
     // Calculates the exact Dot when overflow should trigger for the NEXT line
@@ -638,7 +628,7 @@ public class PPU {
                 status |= (openBus & 0x1F);
                 statusVBlank = false;
                 writeToggleW = false;
-                refreshOpenBusBits(status, 0xE0);
+                refreshOpenBusBits(status, 0xFF);
                 return status;
             case 0x2004:
                 int data = oam[oamAddr & 0xFF] & 0xFF;
@@ -656,7 +646,11 @@ public class PPU {
                     ppuDataReadBuffer = readVram(addr);
                 }
                 incrementVramAddr();
-                refreshOpenBus(value);
+                if (addr >= 0x3F00) {
+                    refreshOpenBusBits(value, 0x3F); // Only refresh palette bits (0-5), top 2 bits retain their own decay
+                } else {
+                    refreshOpenBus(value); // Non-palette: refresh all 8 bits
+                }
                 return value;
             default:
                 // Write-only register. CPU sees open bus.
