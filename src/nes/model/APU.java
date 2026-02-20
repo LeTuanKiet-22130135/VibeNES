@@ -20,11 +20,11 @@ public class APU {
     private Bus bus;
 
     private boolean frameInterruptFlag = false;
-    private boolean frameIrqInhibit = false;
+    private boolean frameIrqInhibit = true;
 
     private int cpuCycleCounter = 0;
     private int frameCounter = 0;
-    private int frameCounterMode = 0; // 0 for 4-step, 1 for 5-step
+    private int frameCounterMode = 1; // 0 for 4-step, 1 for 5-step
 
     private final Queue<Float> sampleBuffer = new LinkedList<>();
     

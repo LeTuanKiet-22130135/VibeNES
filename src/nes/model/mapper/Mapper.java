@@ -19,4 +19,5 @@ public interface Mapper {
     int ppuRead(int address);
     void ppuWrite(int address, int value);
     void reset();
+    default void stepCpu() {}
 }

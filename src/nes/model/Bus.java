@@ -64,8 +64,9 @@ public class Bus {
                 for (int i = 0; i < 256; i++) {
                     ppu.oamDmaWrite(read((base + i) & 0xFFFF));
                 }
-                ppu.stepCpuCycles(513);
-                if (apu != null) apu.stepCpuCycles(513);
+                for (int i = 0; i < 513; i++) {
+                    onCpuCycle();
+                }
                 if (cpu != null) cpu.stall(513);
                 return;
             }
@@ -116,6 +117,9 @@ public class Bus {
         }
         if (apu != null) {
             apu.stepCpuCycles(1);
+        }
+        if (cartridge != null && cartridge.getMapper() != null) {
+            cartridge.getMapper().stepCpu();
         }
     }
 }

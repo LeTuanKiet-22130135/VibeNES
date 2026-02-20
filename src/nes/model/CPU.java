@@ -268,9 +268,19 @@ public class CPU {
     private void CMP() { int cmp = (a - fetchedValue) & 0x1FF; setFlag(C, cmp < 0x100); setZN(cmp & 0xFF); }
     private void CPX() { int cmp = (x - fetchedValue) & 0x1FF; setFlag(C, cmp < 0x100); setZN(cmp & 0xFF); }
     private void CPY() { int cmp = (y - fetchedValue) & 0x1FF; setFlag(C, cmp < 0x100); setZN(cmp & 0xFF); }
-    private void DEC() { int val = (fetchedValue - 1) & 0xFF; write8(fetchedAddr, val); setZN(val); }
+    private void DEC() {
+        tick();
+        int val = (fetchedValue - 1) & 0xFF;
+        write8(fetchedAddr, val);
+        setZN(val);
+    }
     private void EOR() { a ^= fetchedValue; setZN(a); }
-    private void INC() { int val = (fetchedValue + 1) & 0xFF; write8(fetchedAddr, val); setZN(val); }
+    private void INC() {
+        tick();
+        int val = (fetchedValue + 1) & 0xFF;
+        write8(fetchedAddr, val);
+        setZN(val);
+    }
     private void JMP_abs() { int lo = read8(pc++); int hi = read8(pc++); pc = (hi << 8) | lo; }
     private void JMP_ind() { int lo = read8(pc++); int hi = read8(pc++); int addr = (hi << 8) | lo; pc = read16Bug(addr); }
     private void JSR() { int lo = read8(pc++); int hi = read8(pc++); push16(pc - 1); pc = (hi << 8) | lo; tick(); }

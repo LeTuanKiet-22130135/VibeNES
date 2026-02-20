@@ -45,7 +45,7 @@ public class PPU {
     private int openBus; // Last value written to the PPU bus
     // Open bus decay - each bit decays independently after ~600ms (~3.2 million PPU cycles)
     // We use a simpler model: decay after approximately 600ms worth of PPU cycles
-    private static final int OPEN_BUS_DECAY_CYCLES = 3200000; // ~600ms at 5.37MHz
+    private static final int OPEN_BUS_DECAY_CYCLES = 2000000; // ~600ms at 5.37MHz
     private int openBusDecayTimer;
 
     // Timing
@@ -321,11 +321,12 @@ public class PPU {
                     readVram(0x23C0 | (v & 0x0C00));
                     break;
                 case 4: // Pattern table low byte
-                    spritePatternLo[spriteIndex] = fetchSpritePattern(sprY, tile, attr, false);
+                    int patLo = fetchSpritePattern(sprY, tile, attr, false);
+                    spritePatternLo[spriteIndex] = patLo;
                     break;
                 case 6: // Pattern table high byte
-                    spritePatternHi[spriteIndex] = fetchSpritePattern(sprY, tile, attr, true);
-                    // Store other sprite data for rendering
+                    int patHi = fetchSpritePattern(sprY, tile, attr, true);
+                    spritePatternHi[spriteIndex] = patHi;
                     spriteXPos[spriteIndex] = sprX;
                     spriteAttrs[spriteIndex] = attr;
                     spriteIsZero[spriteIndex] = (spriteScanline[spriteIndex] == 0);
@@ -628,7 +629,7 @@ public class PPU {
                 status |= (openBus & 0x1F);
                 statusVBlank = false;
                 writeToggleW = false;
-                refreshOpenBusBits(status, 0xFF);
+                refreshOpenBusBits(status, 0xE0);
                 return status;
             case 0x2004:
                 int data = oam[oamAddr & 0xFF] & 0xFF;
@@ -677,7 +678,7 @@ public class PPU {
                 ctrlSprTableHigh = (value & 0x08) != 0;
                 ctrlAddrInc32 = (value & 0x04) != 0;
                 ctrlNametableSelect = (value & 0x03);
-                t = (t & ~0x0C00) | ((value & 0x03) << 10);
+                t = (t & 0x73FF) | ((value & 0x03) << 10);
                 if (cartridge != null && cartridge.getMapper() instanceof Mapper5) {
                     ((Mapper5) cartridge.getMapper()).setSpriteSize8x16(ctrlSpriteSize8x16);
                 }
@@ -738,6 +739,7 @@ public class PPU {
             if (cartridge != null) {
                 val = cartridge.getMapper().ppuRead(addr) & 0xFF;
             }
+            return val;
         }
         // Nametables ($2000-$3EFF)
         else if (addr < 0x3F00) {
@@ -758,12 +760,6 @@ public class PPU {
 
         // Pattern tables ($0000-$1FFF) - ALWAYS go through mapper for CHR-RAM writes
         if (addr < 0x2000) {
-            // DEBUG: Catch corruption of tile $C0 pattern data (addr $0C00-$0C0F)
-            if (addr >= 0x0C00 && addr <= 0x0C0F) {
-                System.out.printf("[CHR CORRUPT] addr=0x%04X value=0x%02X v=0x%04X scanline=%d dot=%d%n",
-                        addr, value, v, scanline, dot);
-                new Exception().printStackTrace(System.out);
-            }
             if (cartridge != null) {
                 cartridge.getMapper().ppuWrite(addr, value);
             }
@@ -795,10 +791,8 @@ public class PPU {
                     ((addr & 0x800) >> 1) | (addr & 0x3FF);
             case SINGLE_SCREEN_A -> // All nametables map to first 1KB
                     addr & 0x3FF;
-            case SINGLE_SCREEN_B -> {
-                // All nametables map to second 1KB
-                yield 0x400 | (addr & 0x3FF);
-            }
+            case SINGLE_SCREEN_B -> // All nametables map to second 1KB
+                    0x400 | (addr & 0x3FF);
             case FOUR_SCREEN -> // Full 4KB (requires extra RAM, not typically in 2KB vram)
                     addr & 0x0FFF;
         };

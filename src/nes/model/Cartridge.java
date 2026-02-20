@@ -8,6 +8,9 @@ import nes.model.mapper.Mapper3;
 import nes.model.mapper.Mapper4;
 import nes.model.mapper.Mapper5;
 import nes.model.mapper.Mapper7;
+import nes.model.mapper.Mapper9;
+import nes.model.mapper.Mapper66;
+import nes.model.mapper.Mapper69;
 import nes.util.IOUtil;
 
 import java.io.IOException;
@@ -60,6 +63,15 @@ public class Cartridge {
             case 7:
                 this.mapper = new Mapper7();
                 break;
+            case 9:
+                this.mapper = new Mapper9();
+                break;
+            case 66:
+                this.mapper = new Mapper66();
+                break;
+            case 69:
+                this.mapper = new Mapper69();
+                break;
             default:
                 throw new UnsupportedOperationException("Unsupported mapper: " + this.mapperId);
         }
@@ -99,6 +111,19 @@ public class Cartridge {
         if (mapper instanceof Mapper7) {
             int mode = ((Mapper7) mapper).getMirroringMode();
             return mode == 0 ? Mirroring.SINGLE_SCREEN_A : Mirroring.SINGLE_SCREEN_B;
+        }
+        if (mapper instanceof Mapper9) {
+            int mode = ((Mapper9) mapper).getMirroringMode();
+            return mode == 0 ? Mirroring.VERTICAL : Mirroring.HORIZONTAL;
+        }
+        if (mapper instanceof Mapper69) {
+            int mode = ((Mapper69) mapper).getMirroringMode();
+            switch (mode) {
+                case 0: return Mirroring.VERTICAL;
+                case 1: return Mirroring.HORIZONTAL;
+                case 2: return Mirroring.SINGLE_SCREEN_A;
+                case 3: return Mirroring.SINGLE_SCREEN_B;
+            }
         }
         return staticMirroring;
     }
