@@ -26,7 +26,7 @@ public class Mapper3 implements Mapper {
 
     @Override
     public void setBus(Bus bus) {
-        // Mapper 3 does not use IRQs, so we don't need to store the bus.
+        // Mapper 3 does not use IRQs
     }
 
     @Override

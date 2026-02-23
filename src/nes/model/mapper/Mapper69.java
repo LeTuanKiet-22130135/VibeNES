@@ -6,6 +6,7 @@ import java.util.Arrays;
 
 /**
  * Mapper 69: Sunsoft FME-7 / 5A / 5B
+ * Đã tích hợp Sunsoft 5B Expansion Audio (YM2149F core)
  */
 public class Mapper69 implements Mapper {
 
@@ -14,7 +15,6 @@ public class Mapper69 implements Mapper {
 
     private int commandRegister = 0;
     private final int[] registers = new int[16];
-
     private final byte[] prgRam = new byte[8 * 1024];
 
     private int irqCounter = 0;
@@ -22,58 +22,56 @@ public class Mapper69 implements Mapper {
     private boolean irqCounterEnabled = false;
     private boolean irqPending = false;
 
+    // --- Biến cho Âm thanh ---
+    private final Sunsoft5BAudio audioCore = new Sunsoft5BAudio();
+    private int audioRegisterSelect = 0;
+
     public Mapper69() {
-        // Gimmick! and several other FME-7 games require PRG RAM to be initialized to 0xFF.
-        Arrays.fill(prgRam, (byte) 0xFF);
+        Arrays.fill(prgRam, (byte) 0x00);
         reset();
     }
 
     @Override
-    public void setCartridge(Cartridge cartridge) {
-        this.cartridge = cartridge;
-    }
+    public void setCartridge(Cartridge cartridge) { this.cartridge = cartridge; }
 
     @Override
-    public void setBus(Bus bus) {
-        this.bus = bus;
-    }
+    public void setBus(Bus bus) { this.bus = bus; }
 
     private int getPrgBank(int bankRegister) {
         int bank = bankRegister & 0x3F;
         int numBanks = cartridge.getPrgRom().length / 8192;
         if (numBanks == 0) return 0;
-        return bank % numBanks;  // Safe for all sizes including 384KB
+        return bank % numBanks;
     }
 
     @Override
     public int cpuRead(int address) {
         address &= 0xFFFF;
-
         if (address >= 0x6000 && address <= 0x7FFF) {
             int reg8 = registers[0x08];
             boolean enabled = (reg8 & 0x80) != 0;
             boolean isRam = (reg8 & 0x40) != 0;
 
-            if (!enabled) return 0; // Open bus behavior
-
             if (isRam) {
+                if (!enabled) return 0;
                 return prgRam[address - 0x6000] & 0xFF;
             } else {
                 int bank = getPrgBank(reg8);
                 int finalAddr = (bank * 8192) + (address & 0x1FFF);
-                return cartridge.getPrgRom()[finalAddr] & 0xFF;
+                if (finalAddr < cartridge.getPrgRom().length) {
+                    return cartridge.getPrgRom()[finalAddr] & 0xFF;
+                }
+                return 0;
             }
         }
 
         if (address >= 0x8000) {
             int bank = 0;
             int offset = address & 0x1FFF;
-
             if (address < 0xA000) bank = getPrgBank(registers[0x09]);
             else if (address < 0xC000) bank = getPrgBank(registers[0x0A]);
             else if (address < 0xE000) bank = getPrgBank(registers[0x0B]);
             else {
-                // The last PRG bank is always hardwired to the final physical bank
                 int numBanks = cartridge.getPrgRom().length / 8192;
                 bank = (numBanks > 0) ? numBanks - 1 : 0;
             }
@@ -95,8 +93,7 @@ public class Mapper69 implements Mapper {
             int reg8 = registers[0x08];
             boolean enabled = (reg8 & 0x80) != 0;
             boolean isRam = (reg8 & 0x40) != 0;
-
-            if (enabled && isRam) {
+            if (isRam && enabled) {
                 prgRam[address - 0x6000] = (byte) value;
             }
             return;
@@ -107,11 +104,10 @@ public class Mapper69 implements Mapper {
         }
         else if (address >= 0xA000 && address < 0xC000) {
             registers[commandRegister] = value;
-
             if (commandRegister == 0x0D) {
                 irqEnabled = (value & 0x01) != 0;
                 irqCounterEnabled = (value & 0x80) != 0;
-                irqPending = false; // Writing to 0x0D acknowledges the IRQ
+                irqPending = false;
                 if (bus != null) bus.clearIrq();
             } else if (commandRegister == 0x0E) {
                 irqCounter = (irqCounter & 0xFF00) | value;
@@ -119,12 +115,17 @@ public class Mapper69 implements Mapper {
                 irqCounter = (irqCounter & 0x00FF) | (value << 8);
             }
         }
+        // Bắt các lệnh ghi vào địa chỉ âm thanh của Sunsoft 5B
+        else if (address >= 0xC000 && address < 0xE000) {
+            audioRegisterSelect = value & 0x0F; // Chọn thanh ghi (0-15)
+        }
+        else if (address >= 0xE000) {
+            audioCore.writeRegister(audioRegisterSelect, value); // Ghi dữ liệu vào thanh ghi đã chọn
+        }
     }
 
     @Override
-    public void cpuWrite(int address, int value) {
-        cpuWrite(address, value, 0);
-    }
+    public void cpuWrite(int address, int value) { cpuWrite(address, value, 0); }
 
     @Override
     public int ppuRead(int address) {
@@ -143,9 +144,8 @@ public class Mapper69 implements Mapper {
 
         byte[] chr = cartridge.getChr();
         if (chr.length > 0) {
-            bank &= 0xFF; // Constrain to 8-bit bank index
-            int finalAddr = (bank * 1024) + offset;
-            return chr[finalAddr % chr.length] & 0xFF;
+            bank &= 0xFF;
+            return chr[(bank * 1024 + offset) % chr.length] & 0xFF;
         }
         return 0;
     }
@@ -153,7 +153,6 @@ public class Mapper69 implements Mapper {
     @Override
     public void ppuWrite(int address, int value) {
         if (!cartridge.isChrRam()) return;
-
         address &= 0x1FFF;
         int bank = 0;
         int offset = address & 0x03FF;
@@ -170,8 +169,7 @@ public class Mapper69 implements Mapper {
         byte[] chr = cartridge.getChr();
         if (chr.length > 0) {
             bank &= 0xFF;
-            int finalAddr = (bank * 1024) + offset;
-            chr[finalAddr % chr.length] = (byte) value;
+            chr[(bank * 1024 + offset) % chr.length] = (byte) value;
         }
     }
 
@@ -184,10 +182,15 @@ public class Mapper69 implements Mapper {
                 irqPending = true;
             }
         }
+        if (irqPending && irqEnabled && bus != null) bus.requestIrq();
 
-        if (irqPending && irqEnabled && bus != null) {
-            bus.requestIrq();
-        }
+        // Tiến trình tạo âm thanh chạy theo mỗi chu kỳ CPU
+        audioCore.step();
+    }
+
+    @Override
+    public float getAudioSample() {
+        return audioCore.getSample();
     }
 
     @Override
@@ -198,9 +201,89 @@ public class Mapper69 implements Mapper {
         irqEnabled = false;
         irqCounterEnabled = false;
         irqPending = false;
+        audioRegisterSelect = 0;
+        audioCore.reset();
     }
 
-    public int getMirroringMode() {
-        return registers[0x0C] & 0x03;
+    public int getMirroringMode() { return registers[0x0C] & 0x03; }
+
+    /**
+     * Mô phỏng phần cứng Yamaha YM2149F (Sunsoft 5B Audio Core)
+     */
+    private static class Sunsoft5BAudio {
+        private final int[] regs = new int[16];
+
+        private final int[] period = new int[3];
+        private final int[] counter = new int[3];
+        private final int[] volume = new int[3];
+        private final boolean[] output = new boolean[3];
+        private int clockDivider = 0;
+
+        // Bảng quy đổi âm lượng tuyến tính sang logarit (để nghe giống thật hơn)
+        private static final float[] VOL_TABLE = new float[16];
+        static {
+            VOL_TABLE[0] = 0.0f;
+            for (int i = 1; i < 16; i++) {
+                // Tăng theo hàm mũ để khớp với mạch khuếch đại (amplifer) analog
+                VOL_TABLE[i] = (float) Math.pow(10.0, (i - 15) * 0.1) * 0.15f;
+            }
+        }
+
+        public void reset() {
+            Arrays.fill(regs, 0);
+            Arrays.fill(period, 0);
+            Arrays.fill(counter, 0);
+            Arrays.fill(volume, 0);
+            Arrays.fill(output, false);
+            clockDivider = 0;
+        }
+
+        public void writeRegister(int reg, int value) {
+            if (reg > 15) return;
+            regs[reg] = value;
+
+            if (reg <= 5) {
+                int ch = reg / 2;
+                period[ch] = (regs[ch * 2 + 1] << 8) | regs[ch * 2];
+                period[ch] &= 0x0FFF; // 12-bit period
+            }
+            else if (reg >= 8 && reg <= 10) {
+                int ch = reg - 8;
+                volume[ch] = value & 0x0F;
+                // Lưu ý: Bit 4 quy định Envelope (chúng ta dùng volume tĩnh cho 90% Gimmick!)
+            }
+        }
+
+        public void step() {
+            // YM2149F chia xung nhịp đầu vào (CPU clock) cho 16
+            clockDivider++;
+            if (clockDivider >= 16) {
+                clockDivider = 0;
+
+                // Clock 3 kênh âm (Tone Generators)
+                for (int i = 0; i < 3; i++) {
+                    if (period[i] > 0) {
+                        counter[i]++;
+                        if (counter[i] >= period[i]) {
+                            counter[i] = 0;
+                            output[i] = !output[i];
+                        }
+                    }
+                }
+            }
+        }
+
+        public float getSample() {
+            float mixedSample = 0.0f;
+            int enableReg = regs[7]; // Thanh ghi 7 quản lý Enable (0 = Bật, 1 = Tắt)
+
+            for (int i = 0; i < 3; i++) {
+                boolean isToneEnabled = (enableReg & (1 << i)) == 0;
+                if (isToneEnabled && output[i]) {
+                    mixedSample += VOL_TABLE[volume[i]];
+                }
+            }
+            return mixedSample;
+        }
     }
 }

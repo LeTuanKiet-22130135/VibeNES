@@ -3,6 +3,7 @@ package nes.model;
 import nes.model.mapper.Mapper5;
 
 import java.util.Arrays;
+import nes.model.mapper.MapperVRC6;
 
 /**
  * NES Picture Processing Unit (PPU)
@@ -87,8 +88,12 @@ public class PPU {
     void attachBus(Bus bus) { this.bus = bus; }
     public void setCartridge(Cartridge cartridge) {
         this.cartridge = cartridge;
-        if (cartridge != null && cartridge.getMapper() instanceof Mapper5) {
-            ((Mapper5) cartridge.getMapper()).setPpuVram(vram);
+        if (cartridge != null) {
+            if (cartridge.getMapper() instanceof Mapper5) {
+                ((Mapper5) cartridge.getMapper()).setPpuVram(vram);
+            } else if (cartridge.getMapper() instanceof MapperVRC6) {
+                ((MapperVRC6) cartridge.getMapper()).setPpuVram(vram);
+            }
         }
     }
 
@@ -732,43 +737,35 @@ public class PPU {
 
     private int readVram(int addr) {
         addr &= 0x3FFF;
-
         int val = 0;
-        // Pattern tables ($0000-$1FFF) - ALWAYS go through mapper for CHR access
         if (addr < 0x2000) {
             if (cartridge != null) {
                 val = cartridge.getMapper().ppuRead(addr) & 0xFF;
             }
             return val;
         }
-        // Nametables ($2000-$3EFF)
         else if (addr < 0x3F00) {
-            // For MMC5, let the mapper handle nametables
-            if (cartridge != null && cartridge.getMapper() instanceof Mapper5) {
+            // SỬA LỖI: Thêm lại MapperVRC6 vào đây để nó kiểm soát PPU Banking
+            if (cartridge != null && (cartridge.getMapper() instanceof Mapper5 || cartridge.getMapper() instanceof MapperVRC6)) {
                 val = cartridge.getMapper().ppuRead(addr) & 0xFF;
             } else {
-                // Standard mirroring for other mappers
                 val = vram[applyMirroring(addr & 0x0FFF)] & 0xFF;
             }
         }
-
         return val;
     }
 
     private void writeVram(int addr, int value) {
         addr &= 0x3FFF;
-
-        // Pattern tables ($0000-$1FFF) - ALWAYS go through mapper for CHR-RAM writes
         if (addr < 0x2000) {
             if (cartridge != null) {
                 cartridge.getMapper().ppuWrite(addr, value);
             }
             return;
         }
-
-        // Nametables ($2000-$3EFF)
         if (addr < 0x3F00) {
-            if (cartridge != null && cartridge.getMapper() instanceof Mapper5) {
+            // SỬA LỖI: Thêm lại MapperVRC6 vào đây
+            if (cartridge != null && (cartridge.getMapper() instanceof Mapper5 || cartridge.getMapper() instanceof MapperVRC6)) {
                 cartridge.getMapper().ppuWrite(addr, value);
                 return;
             }

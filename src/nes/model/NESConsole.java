@@ -91,8 +91,10 @@ public class NESConsole {
         this.cartridge = cart;
         this.bus.setCartridge(cart);
         this.ppu.setCartridge(cart);
+        this.apu.setCartridge(cart);
         this.ppu.reset();    // reset PPU state
         this.cpu.reset();    // reset CPU
+        this.apu.reset();
     }
 
     public void setCpuCyclesPerFrame(int cycles) {

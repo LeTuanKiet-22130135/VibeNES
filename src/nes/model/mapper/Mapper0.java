@@ -68,10 +68,12 @@ public class Mapper0 implements Mapper {
     public void ppuWrite(int address, int value) {
         // NROM typically has CHR ROM, but some variants have CHR RAM.
         // We'll assume CHR RAM is possible.
-        address &= 0x1FFF;
-        byte[] chr = cartridge.getChr();
-        if (cartridge.isChrRam() && address < chr.length) {
-            chr[address] = (byte) value;
+        if (cartridge.isChrRam()) {
+            address &= 0x1FFF;
+            byte[] chr = cartridge.getChr();
+            if (address < chr.length) {
+                chr[address] = (byte) value;
+            }
         }
     }
 

@@ -122,4 +122,8 @@ public class Bus {
             cartridge.getMapper().stepCpu();
         }
     }
+
+    public Cartridge getCartridge() {
+        return this.cartridge;
+    }
 }

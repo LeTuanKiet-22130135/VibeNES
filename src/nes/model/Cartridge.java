@@ -11,6 +11,7 @@ import nes.model.mapper.Mapper7;
 import nes.model.mapper.Mapper9;
 import nes.model.mapper.Mapper66;
 import nes.model.mapper.Mapper69;
+import nes.model.mapper.MapperVRC6;
 import nes.util.IOUtil;
 
 import java.io.IOException;
@@ -66,6 +67,12 @@ public class Cartridge {
             case 9:
                 this.mapper = new Mapper9();
                 break;
+            case 24:
+                this.mapper = new MapperVRC6(false);
+                break;
+            case 26:
+                this.mapper = new MapperVRC6(true);
+                break;
             case 66:
                 this.mapper = new Mapper66();
                 break;
@@ -87,7 +94,7 @@ public class Cartridge {
 
     /**
      * Returns the current mirroring mode. For most mappers, this is static.
-     * For mappers like MMC1/MMC3/MMC5/AxROM, this will delegate to the mapper to get the dynamic mode.
+     * For mappers like MMC1/MMC3/MMC5/AxROM/VRC6, this will delegate to the mapper to get the dynamic mode.
      */
     public Mirroring getMirroring() {
         if (mapper instanceof Mapper1) {
@@ -118,6 +125,15 @@ public class Cartridge {
         }
         if (mapper instanceof Mapper69) {
             int mode = ((Mapper69) mapper).getMirroringMode();
+            switch (mode) {
+                case 0: return Mirroring.VERTICAL;
+                case 1: return Mirroring.HORIZONTAL;
+                case 2: return Mirroring.SINGLE_SCREEN_A;
+                case 3: return Mirroring.SINGLE_SCREEN_B;
+            }
+        }
+        if (mapper instanceof MapperVRC6) {
+            int mode = ((MapperVRC6) mapper).getMirroringMode();
             switch (mode) {
                 case 0: return Mirroring.VERTICAL;
                 case 1: return Mirroring.HORIZONTAL;

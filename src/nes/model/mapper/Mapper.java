@@ -20,4 +20,8 @@ public interface Mapper {
     void ppuWrite(int address, int value);
     void reset();
     default void stepCpu() {}
+    default float getAudioSample() {
+        return 0.0f;
+    }
+    default void stepAudio(int cycles) {}
 }

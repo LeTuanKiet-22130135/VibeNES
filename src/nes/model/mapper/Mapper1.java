@@ -13,7 +13,7 @@ public class Mapper1 implements Mapper {
 
     private Cartridge cartridge;
 
-    // Shift register (5 writes)
+    // Shift register
     private int shiftRegister;
     private int shiftCount;
 
@@ -39,7 +39,7 @@ public class Mapper1 implements Mapper {
 
     @Override
     public void setBus(Bus bus) {
-        // Mapper 1 does not use IRQs, so we don't need to store the bus.
+        // Mapper 1 does not use IRQs
     }
 
     @Override
@@ -93,7 +93,7 @@ public class Mapper1 implements Mapper {
             }
 
             int finalAddr = bank * 16384 + (offset & 0x3FFF);
-            if (finalAddr < cartridge.getPrgRom().length) {
+            if (finalAddr >= 0 && finalAddr < cartridge.getPrgRom().length) {
                 return cartridge.getPrgRom()[finalAddr] & 0xFF;
             }
         }
@@ -235,7 +235,7 @@ public class Mapper1 implements Mapper {
         chrBank0 = 0;
         chrBank1 = 0;
         prgBank = 0;
-        prgRamEnabled = true; // keep PRG RAM enabled
+        prgRamEnabled = true;
         lastWriteCycle = -1;
     }
     
