@@ -1,5 +1,7 @@
 package nes.model;
 
+import nes.model.mapper.Mapper118;
+import nes.model.mapper.Mapper19;
 import nes.model.mapper.Mapper5;
 
 import java.util.Arrays;
@@ -47,7 +49,6 @@ public class PPU {
     // Open bus decay - each bit decays independently after ~600ms (~3.2 million PPU cycles)
     // We use a simpler model: decay after approximately 600ms worth of PPU cycles
     private static final int OPEN_BUS_DECAY_CYCLES = 2000000; // ~600ms at 5.37MHz
-    private int openBusDecayTimer;
 
     // Timing
     private int scanline;
@@ -93,6 +94,8 @@ public class PPU {
                 ((Mapper5) cartridge.getMapper()).setPpuVram(vram);
             } else if (cartridge.getMapper() instanceof MapperVRC6) {
                 ((MapperVRC6) cartridge.getMapper()).setPpuVram(vram);
+            } else if (cartridge.getMapper() instanceof Mapper118) { // THÊM DÒNG NÀY
+                ((Mapper118) cartridge.getMapper()).setPpuVram(vram);
             }
         }
     }
@@ -104,7 +107,6 @@ public class PPU {
         maskReg = 0; statusVBlank = false; statusSpriteZeroHit = false;
         statusSpriteOverflow = false; oamAddr = 0; writeToggleW = false;
         t = 0; v = 0; xFine = 0; ppuDataReadBuffer = 0; openBus = 0;
-        openBusDecayTimer = 0;
         scanline = -1; dot = 0; oddFrame = false;
         bg_next_tile_id = 0;
         bg_next_tile_attrib = 0;
@@ -745,8 +747,8 @@ public class PPU {
             return val;
         }
         else if (addr < 0x3F00) {
-            // SỬA LỖI: Thêm lại MapperVRC6 vào đây để nó kiểm soát PPU Banking
-            if (cartridge != null && (cartridge.getMapper() instanceof Mapper5 || cartridge.getMapper() instanceof MapperVRC6)) {
+            // THÊM Mapper118 VÀO ĐIỀU KIỆN NÀY
+            if (cartridge != null && (cartridge.getMapper() instanceof Mapper5 || cartridge.getMapper() instanceof MapperVRC6 || cartridge.getMapper() instanceof Mapper19 || cartridge.getMapper() instanceof Mapper118)) {
                 val = cartridge.getMapper().ppuRead(addr) & 0xFF;
             } else {
                 val = vram[applyMirroring(addr & 0x0FFF)] & 0xFF;
@@ -764,8 +766,8 @@ public class PPU {
             return;
         }
         if (addr < 0x3F00) {
-            // SỬA LỖI: Thêm lại MapperVRC6 vào đây
-            if (cartridge != null && (cartridge.getMapper() instanceof Mapper5 || cartridge.getMapper() instanceof MapperVRC6)) {
+            // THÊM Mapper118 VÀO ĐIỀU KIỆN NÀY
+            if (cartridge != null && (cartridge.getMapper() instanceof Mapper5 || cartridge.getMapper() instanceof MapperVRC6 || cartridge.getMapper() instanceof Mapper19 || cartridge.getMapper() instanceof Mapper118)) {
                 cartridge.getMapper().ppuWrite(addr, value);
                 return;
             }

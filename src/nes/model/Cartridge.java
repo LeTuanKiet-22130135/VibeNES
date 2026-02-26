@@ -9,8 +9,12 @@ import nes.model.mapper.Mapper4;
 import nes.model.mapper.Mapper5;
 import nes.model.mapper.Mapper7;
 import nes.model.mapper.Mapper9;
+import nes.model.mapper.Mapper19;
+import nes.model.mapper.Mapper34;
 import nes.model.mapper.Mapper66;
 import nes.model.mapper.Mapper69;
+import nes.model.mapper.Mapper118;
+import nes.model.mapper.Mapper206;
 import nes.model.mapper.MapperVRC6;
 import nes.util.IOUtil;
 
@@ -67,17 +71,29 @@ public class Cartridge {
             case 9:
                 this.mapper = new Mapper9();
                 break;
+            case 19:
+                this.mapper = new Mapper19();
+                break;
             case 24:
                 this.mapper = new MapperVRC6(false);
                 break;
             case 26:
                 this.mapper = new MapperVRC6(true);
                 break;
+            case 34:
+                this.mapper = new Mapper34();
+                break;
             case 66:
                 this.mapper = new Mapper66();
                 break;
             case 69:
                 this.mapper = new Mapper69();
+                break;
+            case 118:
+                this.mapper = new Mapper118();
+                break;
+            case 206:
+                this.mapper = new Mapper206();
                 break;
             default:
                 throw new UnsupportedOperationException("Unsupported mapper: " + this.mapperId);
@@ -125,6 +141,15 @@ public class Cartridge {
         }
         if (mapper instanceof Mapper69) {
             int mode = ((Mapper69) mapper).getMirroringMode();
+            switch (mode) {
+                case 0: return Mirroring.VERTICAL;
+                case 1: return Mirroring.HORIZONTAL;
+                case 2: return Mirroring.SINGLE_SCREEN_A;
+                case 3: return Mirroring.SINGLE_SCREEN_B;
+            }
+        }
+        if (mapper instanceof Mapper118) {
+            int mode = ((Mapper118) mapper).getMirroringMode();
             switch (mode) {
                 case 0: return Mirroring.VERTICAL;
                 case 1: return Mirroring.HORIZONTAL;

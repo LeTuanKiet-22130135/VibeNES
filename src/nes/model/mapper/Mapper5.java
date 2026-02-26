@@ -1,7 +1,7 @@
 package nes.model. mapper;
 
 import nes.model.Bus;
-import nes.model. Cartridge;
+import nes.model.Cartridge;
 
 import java.util.Arrays;
 

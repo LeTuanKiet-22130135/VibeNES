@@ -1,7 +1,5 @@
 package nes.model;
 
-import nes.model.mapper.Mapper;
-
 import java.util.LinkedList;
 import java.util.Queue;
 
@@ -154,9 +152,7 @@ public class APU {
         float expansionAudio = 0.0f;
         if (cartridge != null) {
             expansionAudio = cartridge.getMapper().getAudioSample();
-            System.out.println(expansionAudio);
         }
-
         return pulseMixTable[pulseOut] + tndMixTable[tndOut] + expansionAudio;
     }
 
@@ -334,7 +330,11 @@ public class APU {
         void stepTimer() { if (timer == 0) { timer = timerPeriod; if (lengthCounter > 0 && linearCounter > 0) sequenceStep = (sequenceStep + 1) & 0x1F; } else { timer--; } }
         void stepLength() { if (!controlFlag && lengthCounter > 0) lengthCounter--; }
         void stepLinearCounter() { if (linearCounterReload) linearCounter = linearCounterLoad; else if (linearCounter > 0) linearCounter--; if (!controlFlag) linearCounterReload = false; }
-        int getSample() { return enabled ? sequenceTable[sequenceStep] : 0; }
+        int getSample() {
+            if (!enabled || timerPeriod < 2) return 0;
+
+            return sequenceTable[sequenceStep];
+        }
     }
 
     private static class Noise {
