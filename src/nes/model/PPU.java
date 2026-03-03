@@ -2,6 +2,7 @@ package nes.model;
 
 import nes.model.mapper.Mapper118;
 import nes.model.mapper.Mapper19;
+import nes.model.mapper.MapperVRC4;
 import nes.model.mapper.Mapper5;
 
 import java.util.Arrays;
@@ -94,6 +95,8 @@ public class PPU {
                 ((Mapper5) cartridge.getMapper()).setPpuVram(vram);
             } else if (cartridge.getMapper() instanceof MapperVRC6) {
                 ((MapperVRC6) cartridge.getMapper()).setPpuVram(vram);
+            } else if (cartridge.getMapper() instanceof MapperVRC4) {
+                ((MapperVRC4) cartridge.getMapper()).setPpuVram(vram);
             } else if (cartridge.getMapper() instanceof Mapper118) { // THÊM DÒNG NÀY
                 ((Mapper118) cartridge.getMapper()).setPpuVram(vram);
             }
@@ -399,12 +402,7 @@ public class PPU {
         if (highByte) {
             address += 8;
         }
-
-        int patternData = 0;
-        if (cartridge != null) {
-            patternData = cartridge.getMapper().ppuRead(address);
-        }
-        return patternData;
+        return readVram(address);
     }
 
     /**
@@ -733,11 +731,18 @@ public class PPU {
         oam[oamAddr++ & 0xFF] = (byte) data;
     }
 
+    // Manual VRAM access for testing
+    public void manualWriteVram(int addr, int value) { writeVram(addr, value); }
+    public int manualReadVram(int addr) { return readVram(addr); }
+
     private void incrementVramAddr() {
         v = (v + (ctrlAddrInc32 ? 32 : 1)) & 0x7FFF;
     }
 
     private int readVram(int addr) {
+        if (cartridge != null && cartridge.getMapper() != null) {
+            cartridge.getMapper().updateA12(addr);
+        }
         addr &= 0x3FFF;
         int val = 0;
         if (addr < 0x2000) {
@@ -748,7 +753,7 @@ public class PPU {
         }
         else if (addr < 0x3F00) {
             // THÊM Mapper118 VÀO ĐIỀU KIỆN NÀY
-            if (cartridge != null && (cartridge.getMapper() instanceof Mapper5 || cartridge.getMapper() instanceof MapperVRC6 || cartridge.getMapper() instanceof Mapper19 || cartridge.getMapper() instanceof Mapper118)) {
+            if (cartridge != null && (cartridge.getMapper() instanceof Mapper5 || cartridge.getMapper() instanceof MapperVRC6 || cartridge.getMapper() instanceof Mapper19 || cartridge.getMapper() instanceof Mapper118 || cartridge.getMapper() instanceof MapperVRC4)) {
                 val = cartridge.getMapper().ppuRead(addr) & 0xFF;
             } else {
                 val = vram[applyMirroring(addr & 0x0FFF)] & 0xFF;
@@ -758,6 +763,9 @@ public class PPU {
     }
 
     private void writeVram(int addr, int value) {
+        if (cartridge != null && cartridge.getMapper() != null) {
+            cartridge.getMapper().updateA12(addr);
+        }
         addr &= 0x3FFF;
         if (addr < 0x2000) {
             if (cartridge != null) {
@@ -767,7 +775,7 @@ public class PPU {
         }
         if (addr < 0x3F00) {
             // THÊM Mapper118 VÀO ĐIỀU KIỆN NÀY
-            if (cartridge != null && (cartridge.getMapper() instanceof Mapper5 || cartridge.getMapper() instanceof MapperVRC6 || cartridge.getMapper() instanceof Mapper19 || cartridge.getMapper() instanceof Mapper118)) {
+            if (cartridge != null && (cartridge.getMapper() instanceof Mapper5 || cartridge.getMapper() instanceof MapperVRC6 || cartridge.getMapper() instanceof Mapper19 || cartridge.getMapper() instanceof Mapper118 || cartridge.getMapper() instanceof MapperVRC4)) {
                 cartridge.getMapper().ppuWrite(addr, value);
                 return;
             }

@@ -18,12 +18,12 @@ public class APU {
     private final Pulse pulse2 = new Pulse(false);
     private final Triangle triangle = new Triangle();
     private final Noise noise = new Noise();
+    private final DMC dmc = new DMC();
     
     private Cartridge cartridge; // To check for expansion audio
     private Bus bus;
 
     private int cpuCycleCounter = 0;
-    private int frameCounter = 0;
     private int frameCounterMode = 0; // 0 for 4-step, 1 for 5-step
 
     private final Queue<Float> sampleBuffer = new LinkedList<>();
@@ -71,11 +71,11 @@ public class APU {
         triangle.reset();
         noise.reset();
         cpuCycleCounter = 0;
-        frameCounter = 0;
         sampleTimer = 0.0;
         sampleBuffer.clear();
         filterPrevSample = 0.0f;
         filterPrevOutput = 0.0f;
+        dmc.reset();
     }
 
     public void stepCpuCycles(int cpuCycles) {
@@ -90,6 +90,7 @@ public class APU {
             }
             // Triangle is clocked at CPU speed
             triangle.stepTimer();
+            dmc.stepTimer();
             
             // Step expansion audio if present
             if (cartridge != null) {
@@ -147,7 +148,7 @@ public class APU {
 
     private float mixOutput() {
         int pulseOut = pulse1.getSample() + pulse2.getSample();
-        int tndOut = (3 * triangle.getSample()) + (2 * noise.getSample());
+        int tndOut = (3 * triangle.getSample()) + (2 * noise.getSample()) + dmc.getSample();
         
         float expansionAudio = 0.0f;
         if (cartridge != null) {
@@ -190,6 +191,7 @@ public class APU {
                 pulse2.setEnabled((value & 2) != 0);
                 triangle.setEnabled((value & 4) != 0);
                 noise.setEnabled((value & 8) != 0);
+                dmc.setEnabled((value & 0x10) != 0);
                 break;
             case 0x4017:
                 frameCounterMode = (value >> 7) & 1;
@@ -199,6 +201,11 @@ public class APU {
                     clockHalfFrame();
                 }
                 break;
+            // DPCM
+            case 0x4010: dmc.write4010(value); break;
+            case 0x4011: dmc.write4011(value); break;
+            case 0x4012: dmc.write4012(value); break;
+            case 0x4013: dmc.write4013(value); break;
         }
     }
 
@@ -209,6 +216,7 @@ public class APU {
             if (pulse2.lengthCounter > 0) status |= 2;
             if (triangle.lengthCounter > 0) status |= 4;
             if (noise.lengthCounter > 0) status |= 8;
+            if (dmc.bytesRemaining > 0) status |= 0x10;
             return status;
         }
         return 0;
@@ -387,6 +395,108 @@ public class APU {
         int getSample() {
             if (!enabled || lengthCounter == 0 || (shiftRegister & 1) != 0) return 0;
             return constantVolume ? volume : envelopeDecay;
+        }
+    }
+
+    private class DMC {
+        boolean enabled;
+        boolean irqEnabled;
+        boolean loop;
+        int rate;
+        int outputLevel;
+        int sampleAddress;
+        int sampleLength;
+
+        int currentAddress;
+        int bytesRemaining;
+        int shiftRegister;
+        int bitsRemaining;
+        int timer;
+        boolean silence = true;
+
+        private static final int[] rateTable = {
+                428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54
+        };
+
+        void reset() {
+            enabled = false; irqEnabled = false; loop = false; rate = rateTable[0];
+            outputLevel = 0; sampleAddress = 0xC000; sampleLength = 1;
+            currentAddress = 0xC000; bytesRemaining = 0; shiftRegister = 0;
+            bitsRemaining = 0; timer = 0; silence = true;
+        }
+
+        void setEnabled(boolean v) {
+            enabled = v;
+            if (!v) {
+                bytesRemaining = 0;
+            } else if (bytesRemaining == 0) {
+                currentAddress = sampleAddress;
+                bytesRemaining = sampleLength;
+            }
+        }
+
+        void write4010(int v) {
+            irqEnabled = (v & 0x80) != 0;
+            loop = (v & 0x40) != 0;
+            rate = rateTable[v & 0x0F];
+        }
+
+        void write4011(int v) {
+            outputLevel = v & 0x7F;
+        }
+
+        void write4012(int v) {
+            sampleAddress = 0xC000 | (v << 6);
+        }
+
+        void write4013(int v) {
+            sampleLength = (v << 4) + 1;
+        }
+
+        void stepTimer() {
+            if (timer > 0) {
+                timer--;
+            } else {
+                timer = rate - 1;
+                if (!silence) {
+                    if ((shiftRegister & 1) != 0) {
+                        if (outputLevel <= 125) outputLevel += 2;
+                    } else {
+                        if (outputLevel >= 2) outputLevel -= 2;
+                    }
+                }
+                shiftRegister >>= 1;
+                bitsRemaining--;
+
+                if (bitsRemaining <= 0) {
+                    bitsRemaining = 8;
+                    if (bytesRemaining > 0) {
+                        silence = false;
+                        if (bus != null) {
+                            // DPCM đọc dữ liệu trực tiếp từ Bus hệ thống
+                            shiftRegister = bus.read(currentAddress);
+                        }
+                        currentAddress++;
+                        if (currentAddress > 0xFFFF) currentAddress = 0x8000;
+
+                        bytesRemaining--;
+                        if (bytesRemaining == 0) {
+                            if (loop) {
+                                currentAddress = sampleAddress;
+                                bytesRemaining = sampleLength;
+                            } else if (irqEnabled && bus != null) {
+                                bus.requestIrq();
+                            }
+                        }
+                    } else {
+                        silence = true;
+                    }
+                }
+            }
+        }
+
+        int getSample() {
+            return outputLevel;
         }
     }
 }

@@ -1,21 +1,6 @@
 package nes.model;
 
-import nes.model.mapper.Mapper;
-import nes.model.mapper.Mapper0;
-import nes.model.mapper.Mapper1;
-import nes.model.mapper.Mapper2;
-import nes.model.mapper.Mapper3;
-import nes.model.mapper.Mapper4;
-import nes.model.mapper.Mapper5;
-import nes.model.mapper.Mapper7;
-import nes.model.mapper.Mapper9;
-import nes.model.mapper.Mapper19;
-import nes.model.mapper.Mapper34;
-import nes.model.mapper.Mapper66;
-import nes.model.mapper.Mapper69;
-import nes.model.mapper.Mapper118;
-import nes.model.mapper.Mapper206;
-import nes.model.mapper.MapperVRC6;
+import nes.model.mapper.*;
 import nes.util.IOUtil;
 
 import java.io.IOException;
@@ -71,8 +56,17 @@ public class Cartridge {
             case 9:
                 this.mapper = new Mapper9();
                 break;
+            case 10:
+                this.mapper = new Mapper10();
+                break;
+            case 16:
+                this.mapper = new Mapper16();
+                break;
             case 19:
                 this.mapper = new Mapper19();
+                break;
+            case 21, 22, 23, 25:
+                this.mapper = new MapperVRC4(this.mapperId);
                 break;
             case 24:
                 this.mapper = new MapperVRC6(false);
@@ -89,8 +83,14 @@ public class Cartridge {
             case 69:
                 this.mapper = new Mapper69();
                 break;
+            case 85:
+                this.mapper = new Mapper85();
+                break;
             case 118:
                 this.mapper = new Mapper118();
+                break;
+            case 119:
+                this.mapper = new Mapper119();
                 break;
             case 206:
                 this.mapper = new Mapper206();
@@ -159,6 +159,32 @@ public class Cartridge {
         }
         if (mapper instanceof MapperVRC6) {
             int mode = ((MapperVRC6) mapper).getMirroringMode();
+            switch (mode) {
+                case 0: return Mirroring.VERTICAL;
+                case 1: return Mirroring.HORIZONTAL;
+                case 2: return Mirroring.SINGLE_SCREEN_A;
+                case 3: return Mirroring.SINGLE_SCREEN_B;
+            }
+        }
+        if (mapper instanceof Mapper119) {
+            int mode = ((Mapper119) mapper).getMirroringMode();
+            return mode == 0 ? Mirroring.VERTICAL : Mirroring.HORIZONTAL;
+        }
+        if (mapper instanceof MapperVRC4) {
+            int mode = ((MapperVRC4) mapper).getMirroringMode();
+            switch (mode) {
+                case 0: return Mirroring.VERTICAL;
+                case 1: return Mirroring.HORIZONTAL;
+                case 2: return Mirroring.SINGLE_SCREEN_A;
+                case 3: return Mirroring.SINGLE_SCREEN_B;
+            }
+        }
+        if (mapper instanceof Mapper10) {
+            int mode = ((Mapper10) mapper).getMirroringMode();
+            return mode == 0 ? Mirroring.VERTICAL : Mirroring.HORIZONTAL;
+        }
+        if (mapper instanceof Mapper16) {
+            int mode = ((Mapper16) mapper).getMirroringMode();
             switch (mode) {
                 case 0: return Mirroring.VERTICAL;
                 case 1: return Mirroring.HORIZONTAL;

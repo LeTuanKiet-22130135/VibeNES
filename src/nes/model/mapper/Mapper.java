@@ -24,4 +24,5 @@ public interface Mapper {
         return 0.0f;
     }
     default void stepAudio(int cycles) {}
+    default void updateA12(int address) {}
 }

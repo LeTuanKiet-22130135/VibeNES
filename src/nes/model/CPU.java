@@ -51,6 +51,7 @@ public class CPU {
 
     public void nmi() { nmiDetected = true; }
     public void irq() { irqDetected = true; }
+    public boolean isIrqDetected() { return irqDetected; }
     public void clearIrq() { irqDetected = false; }
     public void stall(int cycles) { this.stallCycles += cycles; }
 
